@@ -401,7 +401,11 @@ impl From<ProfilePatch> for PrfItem {
 #[specta::specta]
 pub async fn patch_profiles_config(profiles: ProfileSelection) -> CmdResult<ValidationOutcome> {
     if let Err(error) = crate::xboard::guide::manual_override().await {
-        logging!(warn, Type::Config, "Could not persist the dismissed connection guide: {error}");
+        logging!(
+            warn,
+            Type::Config,
+            "Could not persist the dismissed connection guide: {error}"
+        );
     }
     if CURRENT_SWITCHING_PROFILE
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)

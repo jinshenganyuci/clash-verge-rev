@@ -1,9 +1,9 @@
 use super::{CmdResult, coded_error};
+use crate::xboard::guide::{XboardGuideMode, XboardGuideSnapshot};
 use crate::xboard::{
     self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy, XboardRequestParams,
     XboardSnapshot,
 };
-use crate::xboard::guide::{XboardGuideMode, XboardGuideSnapshot};
 
 fn failure(error: xboard::Error) -> super::CommandFailure {
     coded_error(error.code, error)

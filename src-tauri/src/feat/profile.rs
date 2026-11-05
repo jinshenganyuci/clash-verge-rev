@@ -40,7 +40,11 @@ async fn record_switched_node(group_name: &str, proxy_name: &str) {
 
 pub async fn switch_proxy_node(group_name: &str, proxy_name: &str) {
     if let Err(error) = crate::xboard::guide::manual_override().await {
-        logging!(warn, Type::Config, "Could not persist the dismissed connection guide: {error}");
+        logging!(
+            warn,
+            Type::Config,
+            "Could not persist the dismissed connection guide: {error}"
+        );
     }
     match handle::Handle::mihomo()
         .select_node_for_group(group_name, proxy_name)

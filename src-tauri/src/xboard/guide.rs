@@ -86,7 +86,7 @@ struct Identity { email: String, bearer: String }
 
 #[derive(Clone)]
 struct Configuration {
-    runtime: Arc<IRuntime>,
+    runtime: Arc<Box<IRuntime>>,
     generation: Option<u64>,
     profile: Option<String>,
     file: Option<String>,
@@ -101,11 +101,11 @@ struct Candidate { probe: String, path: Vec<Selection>, automatic: bool }
 #[derive(Clone)]
 struct Prepared { identity: Identity, configuration: Configuration, candidate: Candidate }
 
-fn changed() -> Error {
+const fn changed() -> Error {
     Error::new("XBOARD_GUIDE_CHANGED", "The connection setup changed. Retry the connection check.")
 }
 
-fn unavailable() -> Error {
+const fn unavailable() -> Error {
     Error::new("XBOARD_GUIDE_NO_ROUTE", "No usable proxy route was found. Retry the connection check.")
 }
 
@@ -146,6 +146,7 @@ pub(super) async fn begin_first_login() -> Result<bool> {
     guide.eligible = false;
     guide.pending = true;
     guide.snapshot = XboardGuideSnapshot::default();
+    drop(guide);
     Ok(true)
 }
 
@@ -187,7 +188,7 @@ pub async fn complete(id: u64) -> Result<XboardGuideSnapshot> {
     Ok(snapshot())
 }
 
-async fn cancellable<T>(id: u64, future: impl Future<Output = Result<T>>) -> Result<T> {
+async fn cancellable<T: Send>(id: u64, future: impl Future<Output = Result<T>> + Send) -> Result<T> {
     check(id)?;
     tokio::select! {
         result = future => { check(id)?; result }
@@ -219,6 +220,7 @@ pub fn prepare() -> Result<XboardGuideSnapshot> {
         let id = guide.snapshot.attempt_id.wrapping_add(1);
         guide.snapshot = XboardGuideSnapshot { attempt_id: id, phase: XboardGuidePhase::Syncing, ..Default::default() };
         guide.prepared = None;
+        drop(guide);
         id
     };
     crate::process::AsyncHandler::spawn(move || async move {
@@ -299,7 +301,7 @@ async fn prepare_inner(id: u64) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(8), Handle::mihomo().get_proxies()).await
             .map_err(|_| unavailable())?.map_err(|_| unavailable())
     }).await?;
-    let candidates = candidates(&proxies, configuration.runtime.config.as_ref());
+    let mut candidates = candidates(&proxies, configuration.runtime.config.as_ref());
     if candidates.is_empty() { return Err(unavailable()); }
     {
         let mut guide = GUIDE.lock();
@@ -310,6 +312,14 @@ async fn prepare_inner(id: u64) -> Result<()> {
     }
     let deadline = tokio::time::Instant::now() + CHECK_TIMEOUT;
     refresh_automatic_groups(id, &identity, &configuration, &candidates, deadline).await?;
+    let proxies = within(deadline, Duration::from_secs(3), Handle::mihomo().get_proxies()).await?
+        .map_err(|_| unavailable())?;
+    candidates.retain(|candidate| proxy_route(&proxies, &candidate.probe));
+    if candidates.is_empty() { return Err(unavailable()); }
+    {
+        let mut guide = GUIDE.lock();
+        if guide.snapshot.attempt_id == id { guide.snapshot.total = candidates.len() as u32; }
+    }
     let (candidate, latency) = probe_candidates(id, candidates, deadline).await?;
     let prepared = Prepared { identity, configuration, candidate };
     apply_selection(id, &prepared).await?;
@@ -321,6 +331,7 @@ async fn prepare_inner(id: u64) -> Result<()> {
         guide.snapshot.latency_ms = Some(latency);
         guide.prepared = Some(prepared);
     }
+    drop(guide);
     Ok(())
 }
 
@@ -374,20 +385,47 @@ fn visit(proxies: &Proxies, name: &str, path: Vec<Selection>, visited: &mut Hash
     visited.remove(name);
 }
 
+fn proxy_route(proxies: &Proxies, name: &str) -> bool {
+    resolve_proxy_route(proxies, name, &mut HashSet::new())
+}
+
+fn resolve_proxy_route(proxies: &Proxies, name: &str, visited: &mut HashSet<String>) -> bool {
+    if visited.len() >= 16 || !visited.insert(name.to_owned()) { return false; }
+    let valid = proxies.proxies.get(name).is_some_and(|proxy| {
+        match &proxy.proxy_type {
+            ProxyType::Direct | ProxyType::Reject | ProxyType::RejectDrop | ProxyType::Compatible
+                | ProxyType::Pass | ProxyType::PassRule | ProxyType::Dns => false,
+            ProxyType::Selector | ProxyType::URLTest | ProxyType::Fallback => proxy.now.as_deref()
+                .is_some_and(|selected| resolve_proxy_route(proxies, selected, visited)),
+            ProxyType::LoadBalance | ProxyType::Relay => proxy.all.as_deref()
+                .is_some_and(|members| !members.is_empty() && members.iter().all(|member| resolve_proxy_route(proxies, member, visited))),
+            _ => proxy.all.is_none(),
+        }
+    });
+    visited.remove(name);
+    valid
+}
+
+async fn within<T: Send>(deadline: tokio::time::Instant, budget: Duration, future: impl Future<Output = T> + Send) -> Result<T> {
+    tokio::time::timeout_at(deadline.min(tokio::time::Instant::now() + budget), future)
+        .await.map_err(|_| unavailable())
+}
+
 async fn refresh_automatic_groups(id: u64, identity: &Identity, configuration: &Configuration, candidates: &[Candidate], deadline: tokio::time::Instant) -> Result<()> {
     for candidate in candidates.iter().filter(|candidate| candidate.automatic) {
         if deadline.saturating_duration_since(tokio::time::Instant::now()) < Duration::from_secs(10) { break; }
-        let effects = EFFECTS.lock().await;
-        let state = STATE.lock().await;
-        let config_write = Config::lock_config_write().await;
+        let effects = within(deadline, CHECK_TIMEOUT, EFFECTS.lock()).await?;
+        let state = within(deadline, CHECK_TIMEOUT, STATE.lock()).await?;
+        let config_write = within(deadline, CHECK_TIMEOUT, Config::lock_config_write()).await?;
         check(id)?;
         if !identity_matches(identity, &state) || !configuration_matches(configuration).await { return Err(changed()); }
         let update = CoreManager::global().claim_config_update(&config_write).map_err(|_| changed())?;
-        let group = Handle::mihomo().get_proxy_by_name(&candidate.probe).await.map_err(|_| unavailable())?;
+        let group = within(deadline, Duration::from_secs(3), Handle::mihomo().get_proxy_by_name(&candidate.probe)).await?
+            .map_err(|_| unavailable())?;
         if group.fixed.as_deref().is_none_or(str::is_empty) {
             // Mihomo clears fixed selection before its bounded health check. Keep manual writers outside this request.
             let url = group.test_url.as_deref().filter(|url| !url.is_empty()).unwrap_or(TEST_URL);
-            let _ = Handle::mihomo().delay_group(&candidate.probe, url, 4000).await;
+            let _ = within(deadline, Duration::from_secs(6), Handle::mihomo().delay_group(&candidate.probe, url, 4000)).await;
         }
         drop(update);
         drop(config_write);
@@ -403,7 +441,13 @@ async fn probe_candidates(id: u64, candidates: Vec<Candidate>, deadline: tokio::
         let mut probes = stream::iter(candidates).map(|candidate| async move {
             let measured = tokio::time::timeout(Duration::from_secs(6),
                 Handle::mihomo().delay_proxy_by_name(&candidate.probe, TEST_URL, 4000)).await;
-            let latency = measured.ok().and_then(std::result::Result::ok).map(|delay| delay.delay).filter(|delay| *delay > 0 && *delay <= 4000);
+            let mut latency = measured.ok().and_then(std::result::Result::ok).map(|delay| delay.delay).filter(|delay| *delay > 0 && *delay <= 4000);
+            if candidate.automatic && latency.is_some() {
+                let current = within(deadline, Duration::from_secs(3), Handle::mihomo().get_proxies()).await;
+                if !current.is_ok_and(|result| result.is_ok_and(|proxies| proxy_route(&proxies, &candidate.probe))) {
+                    latency = None;
+                }
+            }
             (candidate, latency)
         }).buffer_unordered(4);
         let mut best: Option<(Candidate, u32)> = None;
@@ -438,7 +482,8 @@ async fn apply_selection(id: u64, prepared: &Prepared) -> Result<()> {
     supersede_selected_activation();
     for selection in prepared.candidate.path.iter().rev() {
         check(id)?;
-        Handle::mihomo().select_node_for_group(&selection.group, &selection.node).await.map_err(|_| unavailable())?;
+        tokio::time::timeout(Duration::from_secs(10), Handle::mihomo().select_node_for_group(&selection.group, &selection.node)).await
+            .map_err(|_| unavailable())?.map_err(|_| unavailable())?;
         check(id)?;
         record_selected_node(&selection.group, &selection.node).await.map_err(|_| Error::storage())?;
     }
@@ -462,6 +507,7 @@ pub fn connect(id: u64, mode: XboardGuideMode) -> Result<XboardGuideSnapshot> {
         guide.snapshot.mode = mode;
         guide.snapshot.error = None;
         guide.snapshot.error_stage = None;
+        drop(guide);
         prepared
     };
     crate::process::AsyncHandler::spawn(move || async move {
@@ -485,14 +531,16 @@ async fn verify_connection(id: u64, mode: XboardGuideMode, candidate: &Candidate
         return Err(connection_error(mode));
     }
     drop(verge);
-    let core = Handle::mihomo().get_base_config().await.map_err(|_| connection_error(mode))?;
+    let core = tokio::time::timeout(Duration::from_secs(10), Handle::mihomo().get_base_config()).await
+        .map_err(|_| connection_error(mode))?.map_err(|_| connection_error(mode))?;
     if core.tun.enable != (mode == XboardGuideMode::Tun) { return Err(connection_error(mode)); }
     if mode == XboardGuideMode::System {
         let system = sysproxy::Sysproxy::get_system_proxy().map_err(|_| connection_error(mode))?;
         if !system.enable || system.port != core.mixed_port { return Err(connection_error(mode)); }
     }
-    let proxies = Handle::mihomo().get_proxies().await.map_err(|_| unavailable())?;
-    if candidate.path.iter().any(|selection| proxies.proxies.get(&selection.group)
+    let proxies = tokio::time::timeout(Duration::from_secs(10), Handle::mihomo().get_proxies()).await
+        .map_err(|_| unavailable())?.map_err(|_| unavailable())?;
+    if !proxy_route(&proxies, &candidate.probe) || candidate.path.iter().any(|selection| proxies.proxies.get(&selection.group)
         .is_none_or(|group| group.now.as_deref() != Some(selection.node.as_str()))) {
         return Err(changed());
     }
@@ -647,7 +695,7 @@ mod tests {
         assert!(!guide.can_connect(3));
         guide.prepared = Some(Prepared {
             identity: Identity { email: "test@example.com".into(), bearer: "test".into() },
-            configuration: Configuration { runtime: Arc::new(IRuntime::default()), generation: Some(1), profile: Some(MANAGED_UID.into()), file: Some("profile.yaml".into()) },
+            configuration: Configuration { runtime: Arc::new(Box::default()), generation: Some(1), profile: Some(MANAGED_UID.into()), file: Some("profile.yaml".into()) },
             candidate: Candidate { probe: "working".into(), path: Vec::new(), automatic: false },
         });
         for phase in [XboardGuidePhase::Idle, XboardGuidePhase::Syncing, XboardGuidePhase::Testing, XboardGuidePhase::Connecting, XboardGuidePhase::Cancelled] {
@@ -659,5 +707,47 @@ mod tests {
         assert!(!guide.can_connect(2));
         guide.invalidate();
         assert!(!guide.can_connect(3));
+    }
+
+    #[test]
+    fn automatic_current_outbounds_must_resolve_to_a_real_proxy() -> anyhow::Result<()> {
+        let mut proxies = network()?;
+        assert!(proxy_route(&proxies, "Automatic"));
+        for selected in ["DIRECT", "missing", "Automatic"] {
+            proxies.proxies.get_mut("Automatic").ok_or_else(|| anyhow::anyhow!("missing group"))?.now = Some(selected.into());
+            assert!(!proxy_route(&proxies, "Automatic"));
+        }
+        proxies.proxies.get_mut("Automatic").ok_or_else(|| anyhow::anyhow!("missing group"))?.now = Some("Manual".into());
+        proxies.proxies.get_mut("Manual").ok_or_else(|| anyhow::anyhow!("missing group"))?.now = Some("Fast".into());
+        assert!(proxy_route(&proxies, "Automatic"));
+        proxies.proxies.get_mut("Manual").ok_or_else(|| anyhow::anyhow!("missing group"))?.now = Some("DIRECT".into());
+        assert!(!proxy_route(&proxies, "Automatic"));
+        Ok(())
+    }
+
+    #[test]
+    fn load_balance_with_a_direct_branch_cannot_pass_from_one_lucky_probe() -> anyhow::Result<()> {
+        let mut proxies = network()?;
+        let group = proxies.proxies.get_mut("Automatic").ok_or_else(|| anyhow::anyhow!("missing group"))?;
+        group.proxy_type = ProxyType::LoadBalance;
+        group.all = Some(vec!["Fast".into(), "DIRECT".into()]);
+        group.now = Some("Fast".into());
+        assert!(!proxy_route(&proxies, "Automatic"));
+        proxies.proxies.get_mut("Automatic").ok_or_else(|| anyhow::anyhow!("missing group"))?.all = Some(vec!["Fast".into(), "Slow".into()]);
+        assert!(proxy_route(&proxies, "Automatic"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_shared_deadline_covers_waiting_and_releases_the_effect_guard() {
+        let effects = Mutex::new(());
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(5);
+        let result = within(deadline, Duration::from_secs(60), async {
+            let guard = effects.lock().await;
+            std::future::pending::<()>().await;
+            drop(guard);
+        }).await;
+        assert!(result.is_err());
+        assert!(effects.try_lock().is_ok());
     }
 }

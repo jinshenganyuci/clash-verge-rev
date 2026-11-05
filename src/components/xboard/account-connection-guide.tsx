@@ -92,10 +92,10 @@ export function AccountConnectionGuide() {
             ? text('正在检测可用线路', 'Checking available connections')
             : text('正在同步订阅', 'Syncing your subscription')
 
+  // Escape and backdrop clicks cannot abandon preparation; only guide actions release this gate.
   return (
     <Dialog
       open
-      disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       aria-labelledby="account-connection-title"
