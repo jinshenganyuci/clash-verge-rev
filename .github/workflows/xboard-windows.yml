@@ -70,6 +70,9 @@ jobs:
             if ($scripts.Count -gt 0) { pnpm exec eslint --fix @scripts }
           }
 
+      - name: Verify frontend formatting is committed
+        run: git diff --exit-code -- src scripts src-tauri/tauri.conf.json src-tauri/tauri.windows.conf.json src-tauri/capabilities/desktop.json
+
       - name: Frontend lint and tests
         run: |
           pnpm lint
