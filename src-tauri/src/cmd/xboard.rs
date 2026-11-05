@@ -1,7 +1,7 @@
 use super::{CmdResult, coded_error};
 use crate::xboard::{
-    self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy,
-    XboardRequestParams, XboardSnapshot,
+    self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy, XboardRequestParams,
+    XboardSnapshot,
 };
 
 fn failure(error: xboard::Error) -> super::CommandFailure {

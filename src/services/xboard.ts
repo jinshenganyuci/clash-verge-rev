@@ -16,52 +16,11 @@ import { mutate } from '@/services/mutate'
 import { revalidateQuery, setCacheData } from '@/services/query-client'
 import { openExternalUrl } from '@/utils/open-external-url'
 
-export interface AccountSnapshot {
-  onboarding_complete: boolean
-  signed_in: boolean
-  email: string | null
-  profile_uid: string | null
-  last_sync: number | null
-  subscription: {
-    plan_id: number | null
-    plan_name: string | null
-    expired_at: number | null
-    upload: number
-    download: number
-    total: number
-  } | null
-  error: string | null
-}
-
-export type AccountOperation =
-  | 'registration_policy'
-  | 'send_email_code'
-  | 'nodes'
-  | 'traffic'
-  | 'knowledge'
-  | 'tickets'
-  | 'ticket_save'
-  | 'ticket_reply'
-  | 'ticket_close'
-  | 'orders'
-  | 'order_detail'
-  | 'invites'
-  | 'invite_save'
-  | 'invite_details'
-  | 'transfer'
-  | 'withdraw'
-  | 'user_info'
-  | 'user_config'
-  | 'user_update'
-  | 'change_password'
-  | 'reset_security'
-  | 'telegram_bot'
+export type AccountSnapshot = Awaited<ReturnType<typeof xboardSnapshot>>
+export type AccountOperation = Parameters<typeof xboardRequest>[0]
 
 export type AccountParams = Record<string, string | number>
-export interface AccountEnvelope<T> {
-  data: T
-  total?: number
-}
+export type AccountEnvelope<T> = Omit<Awaited<ReturnType<typeof xboardRequest>>, 'data'> & { data: T }
 export const accountKey = ['xboardSnapshot'] as const
 export const readRegistrationPolicy = () => xboardRegistrationPolicy()
 let snapshotVersion = 0

@@ -125,9 +125,7 @@ pub struct XboardRegistrationPolicy {
 // Follow the shared IPC JSON representation rather than exporting serde_json's internal type graph.
 #[derive(Deserialize, specta::Type)]
 #[serde(transparent)]
-pub struct XboardRequestParams(
-    #[specta(type = std::collections::HashMap<String, crate::ipc::JsonValue>)] pub Value,
-);
+pub struct XboardRequestParams(#[specta(type = std::collections::HashMap<String, crate::ipc::JsonValue>)] pub Value);
 
 #[derive(Serialize, specta::Type)]
 pub struct XboardBusinessResponse {
@@ -465,8 +463,10 @@ pub async fn request(operation: XboardOperation, params: Value) -> Result<Xboard
     if matches!(operation, XboardOperation::ResetSecurity) {
         // This endpoint returns a signed URL. Publish only success and obtain the new URL privately.
         state.sync(true, false).await?;
+        drop(state);
         return Ok(XboardBusinessResponse::from_value(json!({"data":true})));
     }
+    drop(state);
     api::redact(&mut response);
     Ok(XboardBusinessResponse::from_value(response))
 }
@@ -498,7 +498,7 @@ fn parse_registration_policy(value: &Value) -> Result<XboardRegistrationPolicy> 
     Ok(XboardRegistrationPolicy {
         email_verification_required: policy_flag(&value["is_email_verify"])?,
         invite_required: policy_flag(&value["is_invite_force"])?,
-        captcha_required: policy_flag(value.get("is_captcha").unwrap_or(&value["is_recaptcha"]))?,
+        captcha_required: policy_flag(value.get("is_captcha").unwrap_or_else(|| &value["is_recaptcha"]))?,
         email_domains: value["email_whitelist_suffix"]
             .as_array()
             .map(|domains| {
@@ -531,10 +531,12 @@ pub async fn copy_subscription(telegram: bool) -> Result<()> {
     } else {
         record.url
     };
-    crate::core::handle::Handle::app_handle()
+    let result = crate::core::handle::Handle::app_handle()
         .clipboard()
         .write_text(text)
-        .map_err(|_| Error::new("XBOARD_CLIPBOARD_FAILED", "The subscription could not be copied."))
+        .map_err(|_| Error::new("XBOARD_CLIPBOARD_FAILED", "The subscription could not be copied."));
+    drop(state);
+    result
 }
 
 pub fn start_background() {

@@ -569,6 +569,7 @@ mod tests {
                 assert_eq!(last.query, expected);
                 assert!(last.body.is_null());
             }
+            drop(requests);
         }
         assert_eq!(captured.lock().len(), cases.len());
         for operation in [

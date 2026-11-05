@@ -4,6 +4,27 @@ import { invoke as __TAURI_INVOKE, Channel } from '@tauri-apps/api/core'
 
 /** Commands */
 export const commands = {
+  xboardSnapshot: () => __TAURI_INVOKE<XboardSnapshot>('xboard_snapshot'),
+  xboardLogin: (email: string, password: string) =>
+    __TAURI_INVOKE<XboardSnapshot>('xboard_login', { email, password }),
+  xboardRegister: (input: XboardRegisterInput) =>
+    __TAURI_INVOKE<XboardSnapshot>('xboard_register', { input }),
+  xboardLogout: () => __TAURI_INVOKE<XboardSnapshot>('xboard_logout'),
+  xboardRefresh: (force: boolean) =>
+    __TAURI_INVOKE<XboardSnapshot>('xboard_refresh', { force }),
+  xboardRequest: (operation: XboardOperation, params: XboardRequestParams) =>
+    __TAURI_INVOKE<XboardBusinessResponse_Serialize>('xboard_request', {
+      operation,
+      params,
+    }),
+  xboardRegistrationPolicy: () =>
+    __TAURI_INVOKE<XboardRegistrationPolicy>('xboard_registration_policy'),
+  xboardCompleteOnboarding: () =>
+    __TAURI_INVOKE<XboardSnapshot>('xboard_complete_onboarding'),
+  xboardCopySubscription: () =>
+    __TAURI_INVOKE<null>('xboard_copy_subscription'),
+  xboardCopyTelegramBinding: () =>
+    __TAURI_INVOKE<null>('xboard_copy_telegram_binding'),
   getSystemInfo: () => __TAURI_INVOKE<SystemInfo>('get_system_info'),
   /**  获取应用的运行时间（毫秒） */
   getAppUptime: () => __TAURI_INVOKE<number>('get_app_uptime'),
@@ -1039,6 +1060,86 @@ export type VergeEventPayloads = {
 export type WebDavFile = {
   href: string
   last_modified: string
+}
+
+export type XboardBusinessResponse =
+  | XboardBusinessResponse_Serialize
+  | XboardBusinessResponse_Deserialize
+
+export type XboardBusinessResponse_Deserialize = {
+  data: JsonValue
+  total: number | null
+  current_page: number | null
+  last_page: number | null
+  per_page: number | null
+}
+
+export type XboardBusinessResponse_Serialize = {
+  data: JsonValue
+  total?: number | null
+  current_page?: number | null
+  last_page?: number | null
+  per_page?: number | null
+}
+
+export type XboardOperation =
+  | 'registration_policy'
+  | 'send_email_code'
+  | 'nodes'
+  | 'traffic'
+  | 'knowledge'
+  | 'tickets'
+  | 'ticket_save'
+  | 'ticket_reply'
+  | 'ticket_close'
+  | 'orders'
+  | 'order_detail'
+  | 'invites'
+  | 'invite_save'
+  | 'invite_details'
+  | 'transfer'
+  | 'withdraw'
+  | 'user_info'
+  | 'user_config'
+  | 'user_update'
+  | 'change_password'
+  | 'reset_security'
+  | 'telegram_bot'
+
+export type XboardRegisterInput = {
+  email: string
+  password: string
+  email_code: string | null
+  invite_code: string | null
+}
+
+export type XboardRegistrationPolicy = {
+  email_verification_required: boolean
+  invite_required: boolean
+  captcha_required: boolean
+  email_domains: string[]
+  terms_url: string | null
+}
+
+export type XboardRequestParams = { [key in string]: JsonValue }
+
+export type XboardSnapshot = {
+  onboarding_complete: boolean
+  signed_in: boolean
+  email: string | null
+  profile_uid: string | null
+  last_sync: number | null
+  subscription: XboardSubscription | null
+  error: string | null
+}
+
+export type XboardSubscription = {
+  plan_id: number | null
+  plan_name: string | null
+  expired_at: number | null
+  upload: number
+  download: number
+  total: number
 }
 
 export type YamlMapping = { [key in string]: JsonValue }
