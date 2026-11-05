@@ -60,6 +60,7 @@ $createdRunValues = @()
 $createdFiles = @()
 $sentinelProcesses = @()
 $appProcess = $null
+$previousBrowserArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $createdUpstreamService = $false
 $installed = $false
 $webViewKeys = @(
@@ -104,17 +105,75 @@ function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $Timeo
     if ($process.ExitCode -ne 0) { throw "Process failed ($($process.ExitCode)): $Path" }
 }
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class XboardSmokeWindow {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect { public int Left, Top, Right, Bottom; }
+    private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
+    public static IntPtr FindApplicationWindow(uint processId) {
+        IntPtr found = IntPtr.Zero;
+        long largestArea = 0;
+        EnumWindows((window, parameter) => {
+            uint owner;
+            Rect rectangle;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner == processId && IsWindowVisible(window) && GetWindowRect(window, out rectangle)) {
+                int width = rectangle.Right - rectangle.Left;
+                int height = rectangle.Bottom - rectangle.Top;
+                long area = (long)width * height;
+                if (width >= 640 && height >= 400 && area > largestArea) {
+                    found = window;
+                    largestArea = area;
+                }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+}
+'@
+
+function Set-AppDebugPort {
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try { $port = $listener.LocalEndpoint.Port }
+    finally { $listener.Stop() }
+    # This process-only setting is inherited by the CI-launched app, never persisted.
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$port"
+    return $port
+}
+
 function Wait-AppReady([Diagnostics.Process] $Process) {
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         Start-Sleep -Seconds 1
         $Process.Refresh()
         if ($Process.HasExited) { throw "Installed app exited during startup ($($Process.ExitCode))." }
         $webView = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object ParentProcessId -eq $Process.Id
-        if ((Test-Path (Join-Path $appData 'verge.yaml')) -and $Process.MainWindowHandle -ne [IntPtr]::Zero -and $webView) {
+        $window = [XboardSmokeWindow]::FindApplicationWindow([uint32]$Process.Id)
+        if ((Test-Path (Join-Path $appData 'verge.yaml')) -and $window -ne [IntPtr]::Zero -and $webView) {
+            $rectangle = [XboardSmokeWindow+Rect]::new()
+            [void][XboardSmokeWindow]::GetWindowRect($window, [ref]$rectangle)
+            Write-Host "Visible application window: $($rectangle.Right - $rectangle.Left)x$($rectangle.Bottom - $rectangle.Top), PID $($Process.Id)."
             return
         }
     }
-    throw 'Installed app did not create its own config, window and WebView2 process within 60 seconds.'
+    throw 'Installed app did not create its own config, visible 640x400 window and WebView2 process within 60 seconds.'
+}
+
+function Assert-AppUI([int] $Port, [string] $Mode) {
+    $node = (Get-Command node -CommandType Application).Source
+    $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
+    Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180
 }
 
 function Assert-UpstreamUntouched {
@@ -275,52 +334,19 @@ try {
     if ($service.State -ne 'Running' -or $service.StartMode -ne 'Auto' -or -not $service.PathName.Contains('clash-verge-service-xboard')) {
         throw 'The bundled helper did not install the independent production service.'
     }
+    $debugPort = Set-AppDebugPort
     $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
     Wait-AppReady $appProcess
+    Assert-AppUI $debugPort 'first-run'
     if ($bootstrapExpected) {
         $webViewCoverage.status = 'passed'
         $webViewCoverage.reason = 'Real Runtime removal/absence, NSIS bootstrap installation, and the installed application WebView2 startup were exercised.'
         Write-WebViewCoverage
     }
-    try {
-        Add-Type -AssemblyName System.Drawing, System.Windows.Forms
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class XboardSmokeWindow {
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Rect { public int Left, Top, Right, Bottom; }
-    [DllImport("user32.dll")]
-    public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr window);
-}
-'@
-        [void][XboardSmokeWindow]::SetForegroundWindow($appProcess.MainWindowHandle)
-        Start-Sleep -Seconds 3
-        $rectangle = [XboardSmokeWindow+Rect]::new()
-        if ([XboardSmokeWindow]::GetWindowRect($appProcess.MainWindowHandle, [ref]$rectangle)) {
-            $windowBounds = [Drawing.Rectangle]::FromLTRB($rectangle.Left, $rectangle.Top, $rectangle.Right, $rectangle.Bottom)
-            $bounds = [Drawing.Rectangle]::Intersect($windowBounds, [Windows.Forms.SystemInformation]::VirtualScreen)
-            if ($bounds.Width -gt 0 -and $bounds.Height -gt 0) {
-                $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
-                $graphics = [Drawing.Graphics]::FromImage($bitmap)
-                try {
-                    $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
-                    $bitmap.Save((Join-Path $artifacts 'first-run-window.png'), [Drawing.Imaging.ImageFormat]::Png)
-                } finally {
-                    $graphics.Dispose()
-                    $bitmap.Dispose()
-                }
-            }
-        }
-    } catch {
-        Write-Warning "Optional first-run screenshot unavailable on this runner desktop: $_"
-    }
     Assert-UpstreamUntouched
     $onboardingMarker = Join-Path $appData 'xboard-onboarding-complete'
     $dataSentinel = Join-Path $appData 'xboard-smoke-preserved.txt'
-    Set-Content -LiteralPath $onboardingMarker -Value '1' -NoNewline
+    if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1') { throw 'The real Skip action did not persist onboarding completion.' }
     Set-Content -LiteralPath $dataSentinel -Value $marker -NoNewline
     $previousAppProcess = $appProcess
     Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 180
@@ -333,8 +359,10 @@ public static class XboardSmokeWindow {
     }
     if ((Get-Service -Name $serviceName).Status -ne 'Running') { throw 'Reinstall did not restart the Xboard service.' }
     Assert-UpstreamUntouched
+    $debugPort = Set-AppDebugPort
     $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
     Wait-AppReady $appProcess
+    Assert-AppUI $debugPort 'reinstall'
     if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1' -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne $marker) {
         throw 'Restart after reinstall changed the onboarding marker or application data.'
     }
@@ -349,6 +377,7 @@ public static class XboardSmokeWindow {
     'Syntax, install, core staging, service isolation, application startup, same-version reinstall and uninstall smoke passed.' |
         Tee-Object -FilePath (Join-Path $artifacts 'result.txt')
 } finally {
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousBrowserArguments
     $logDirectory = Join-Path $appData 'logs'
     if (Test-Path $logDirectory) {
         Copy-Item -LiteralPath $logDirectory -Destination (Join-Path $artifacts 'app-logs') -Recurse -Force -ErrorAction Continue

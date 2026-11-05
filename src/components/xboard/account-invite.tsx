@@ -157,7 +157,8 @@ export function AccountInvite() {
             ))}
             <Stack
               direction="row"
-             sx={{ justifyContent: "space-between", alignItems: "center" }}>
+              sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+            >
               <Button
                 disabled={page <= 1 || records.isFetching}
                 onClick={() => setPage(page - 1)}
@@ -191,7 +192,7 @@ export function AccountInvite() {
                 <Typography color="text.secondary">
                   {text('可用佣金', 'Available commission')}
                 </Typography>
-                <Typography variant="h4" sx={{ fontWeight: 700,  my: 1 }}>
+                <Typography variant="h4" sx={{ fontWeight: 700, my: 1 }}>
                   {accountMoney(available, symbol)}
                 </Typography>
                 <Box
@@ -239,7 +240,7 @@ export function AccountInvite() {
                     {config?.commission_distribution_l3 ?? 0}%
                   </Typography>
                 )}
-                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1,  mt: 2 }}>
+                <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1, mt: 2 }}>
                   <Button
                     variant="contained"
                     disabled={task.busy || available <= 0}
@@ -299,7 +300,12 @@ export function AccountInvite() {
                     <Stack
                       key={item.code}
                       direction="row"
-                     sx={{ justifyContent: "space-between", alignItems: "center", gap: 2 }}>
+                      sx={{
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 2,
+                      }}
+                    >
                       <Box>
                         <Typography sx={{ userSelect: 'text' }}>
                           {item.code}

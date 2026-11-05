@@ -42,7 +42,8 @@ export function AccountOverview() {
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         spacing={2}
-       sx={{ justifyContent: "space-between" }}>
+        sx={{ justifyContent: 'space-between' }}
+      >
         <Box>
           <Typography variant="overline" color="primary">
             {text('我的套餐', 'My plan')}
@@ -80,7 +81,7 @@ export function AccountOverview() {
       </Stack>
       {!!sub?.total && (
         <Box sx={{ mt: 3 }}>
-          <Stack direction="row" sx={{ justifyContent: "space-between" }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
             <Typography variant="body2">
               {text('已用流量', 'Data usage')}
             </Typography>
@@ -119,7 +120,7 @@ export function AccountOverview() {
         </Alert>
       )}
       <TaskMessage message={task.message} />
-      <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1,  mt: 3 }}>
+      <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1, mt: 3 }}>
         <Button
           startIcon={<RefreshRounded />}
           variant="contained"
@@ -193,7 +194,8 @@ export function HomeAccountCard() {
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         spacing={1}
-       sx={{ justifyContent: "space-between" }}>
+        sx={{ justifyContent: 'space-between' }}
+      >
         <Box>
           <Typography sx={{ fontWeight: 600 }}>
             {account?.signed_in
