@@ -24,7 +24,8 @@ export const useUpdate = (enabled: boolean = true) => {
   const { verge } = useVerge()
   const { auto_check_update } = verge || {}
 
-  const shouldCheck = APP_UPDATES_ENABLED && enabled && auto_check_update !== false
+  const shouldCheck =
+    APP_UPDATES_ENABLED && enabled && auto_check_update !== false
 
   const fetchUpdate = async () => {
     const result = await checkUpdateSafe()

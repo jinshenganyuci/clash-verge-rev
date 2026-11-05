@@ -200,7 +200,7 @@
           "openCoreDir": "内核目录",
           "openLogsDir": "日志目录",
           "checkUpdates": "检查更新",
-        "projectDownloads": "下载更新",
+          "projectDownloads": "下载更新",
           "openDevTools": "开发者工具",
           "liteModeSettings": "轻量模式设置",
           "exit": "退出",

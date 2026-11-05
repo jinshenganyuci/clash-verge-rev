@@ -44,7 +44,10 @@ export const navItems: NavigationItem[] = [
   },
   {
     ...navigationItems.account,
-    icon: [<AccountCircleOutlinedIcon key="mui" />, <AccountCircleOutlinedIcon key="svg" />],
+    icon: [
+      <AccountCircleOutlinedIcon key="mui" />,
+      <AccountCircleOutlinedIcon key="svg" />,
+    ],
     Component: AccountPage,
   },
   {

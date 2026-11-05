@@ -143,7 +143,11 @@ export const LayoutSidebar = (props: LayoutSidebarProps) => {
             inheritViewBox
           />
           <Box sx={{ fontSize: 17, fontWeight: 700, lineHeight: 1.15 }}>
-            Clash Verge<br /><Box component="span" sx={{ fontSize: 12, color: 'primary.main' }}>Xboard</Box>
+            Clash Verge
+            <br />
+            <Box component="span" sx={{ fontSize: 12, color: 'primary.main' }}>
+              Xboard
+            </Box>
           </Box>
         </div>
       </div>

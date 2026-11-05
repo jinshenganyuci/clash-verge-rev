@@ -1,6 +1,9 @@
 export const navigationItems = {
   home: { label: 'layout.components.navigation.tabs.home', path: '/' },
-  account: { label: 'layout.components.navigation.tabs.account', path: '/account' },
+  account: {
+    label: 'layout.components.navigation.tabs.account',
+    path: '/account',
+  },
   proxies: {
     label: 'layout.components.navigation.tabs.proxies',
     path: '/proxies',

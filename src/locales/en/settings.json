@@ -200,7 +200,7 @@
           "openCoreDir": "Open Core Dir",
           "openLogsDir": "Open Logs Dir",
           "checkUpdates": "Check for Updates",
-        "projectDownloads": "Download updates",
+          "projectDownloads": "Download updates",
           "openDevTools": "Dev Tools",
           "liteModeSettings": "LightWeight Mode Settings",
           "exit": "Exit",

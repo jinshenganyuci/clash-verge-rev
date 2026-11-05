@@ -10,7 +10,14 @@ describe('account monetary amounts', () => {
   })
 
   it('rejects amounts that cannot be safely submitted to the panel', () => {
-    for (const input of ['0', '-1', '1.234', '1e3', 'NaN', '9007199254740992']) {
+    for (const input of [
+      '0',
+      '-1',
+      '1.234',
+      '1e3',
+      'NaN',
+      '9007199254740992',
+    ]) {
       expect(centsFromInput(input)).toBeNull()
     }
   })
@@ -19,7 +26,10 @@ describe('account monetary amounts', () => {
 describe('panel traffic accounting', () => {
   it('reconstructs actual traffic from billed counters and the rate', () => {
     expect(trafficValues({ u: 200, d: 600, server_rate: 2 })).toEqual({
-      billed: 800, rate: 2, upload: 100, download: 300,
+      billed: 800,
+      rate: 2,
+      upload: 100,
+      download: 300,
     })
   })
 

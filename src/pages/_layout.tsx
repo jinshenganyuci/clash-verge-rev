@@ -10,11 +10,11 @@ import { LayoutSidebar } from '@/components/layout/layout-sidebar'
 import { NoticeManager } from '@/components/layout/notice-manager'
 import { ServiceMigrationDialog } from '@/components/layout/service-migration-dialog'
 import { SysproxyPrivilegeDialog } from '@/components/layout/sysproxy-privilege-dialog'
-import { AccountGate } from '@/components/xboard/account-gate'
 import {
   WindowControls,
   WindowResizeHandles,
 } from '@/components/layout/window-controller'
+import { AccountGate } from '@/components/xboard/account-gate'
 import { useI18n } from '@/hooks/use-i18n'
 import { useVerge } from '@/hooks/use-verge'
 import { useWindowDecorations } from '@/hooks/use-window'
@@ -160,18 +160,18 @@ const Layout = () => {
 
         <div className="layout-content">
           <AccountGate>
-          <ServiceMigrationDialog />
-          <SysproxyPrivilegeDialog />
-          <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
+            <ServiceMigrationDialog />
+            <SysproxyPrivilegeDialog />
+            <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
 
-          <div className="layout-content__right">
-            <div className="the-bar"></div>
-            <div className="the-content">
-              <BaseErrorBoundary>
-                <Outlet />
-              </BaseErrorBoundary>
+            <div className="layout-content__right">
+              <div className="the-bar"></div>
+              <div className="the-content">
+                <BaseErrorBoundary>
+                  <Outlet />
+                </BaseErrorBoundary>
+              </div>
             </div>
-          </div>
           </AccountGate>
         </div>
       </Paper>

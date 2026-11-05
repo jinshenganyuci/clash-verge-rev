@@ -355,7 +355,9 @@ const HomePage = () => {
       }
     >
       <Grid container spacing={1.5} columns={{ xs: 6, sm: 6, md: 12 }}>
-        <Grid size={{ xs: 6, md: 12 }}><HomeAccountCard /></Grid>
+        <Grid size={{ xs: 6, md: 12 }}>
+          <HomeAccountCard />
+        </Grid>
         {criticalCards}
 
         {nonCriticalCards}

@@ -857,8 +857,15 @@ const ProfileItemBase = (props: ProfileItemProps) => {
         }}
       >
         {(isAccountProfile
-          ? urlModeMenu.filter((item) => item.label === menuLabels.select || item.label === menuLabels.update)
-          : hasUrl ? urlModeMenu : fileModeMenu).map((item) => (
+          ? urlModeMenu.filter(
+              (item) =>
+                item.label === menuLabels.select ||
+                item.label === menuLabels.update,
+            )
+          : hasUrl
+            ? urlModeMenu
+            : fileModeMenu
+        ).map((item) => (
           <MenuItem
             key={item.label}
             onClick={item.handler}

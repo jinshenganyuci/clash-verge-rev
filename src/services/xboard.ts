@@ -34,14 +34,34 @@ export interface AccountSnapshot {
 }
 
 export type AccountOperation =
-  | 'registration_policy' | 'send_email_code' | 'nodes' | 'traffic'
-  | 'knowledge' | 'tickets' | 'ticket_save' | 'ticket_reply' | 'ticket_close'
-  | 'orders' | 'order_detail' | 'invites' | 'invite_save' | 'invite_details'
-  | 'transfer' | 'withdraw' | 'user_info' | 'user_config' | 'user_update'
-  | 'change_password' | 'reset_security' | 'telegram_bot'
+  | 'registration_policy'
+  | 'send_email_code'
+  | 'nodes'
+  | 'traffic'
+  | 'knowledge'
+  | 'tickets'
+  | 'ticket_save'
+  | 'ticket_reply'
+  | 'ticket_close'
+  | 'orders'
+  | 'order_detail'
+  | 'invites'
+  | 'invite_save'
+  | 'invite_details'
+  | 'transfer'
+  | 'withdraw'
+  | 'user_info'
+  | 'user_config'
+  | 'user_update'
+  | 'change_password'
+  | 'reset_security'
+  | 'telegram_bot'
 
 export type AccountParams = Record<string, string | number>
-export interface AccountEnvelope<T> { data: T; total?: number }
+export interface AccountEnvelope<T> {
+  data: T
+  total?: number
+}
 export const accountKey = ['xboardSnapshot'] as const
 export const readRegistrationPolicy = () => xboardRegistrationPolicy()
 let snapshotVersion = 0
@@ -55,18 +75,21 @@ export async function readAccount(): Promise<AccountSnapshot> {
 async function accountMutation(action: () => Promise<AccountSnapshot>) {
   try {
     const result = await mutate(action, {
-    id: 'xboard-account',
-    errorNotice: false,
-    onFulfilled: (snapshot) => {
-      snapshotVersion += 1
-      void setCacheData(accountKey, snapshot)
-    },
-    revalidate: [['getProfiles']],
+      id: 'xboard-account',
+      errorNotice: false,
+      onFulfilled: (snapshot) => {
+        snapshotVersion += 1
+        void setCacheData(accountKey, snapshot)
+      },
+      revalidate: [['getProfiles']],
     })
     return result.value
   } catch (error) {
     snapshotVersion += 1
-    await Promise.allSettled([revalidateQuery(accountKey), revalidateQuery(['getProfiles'])])
+    await Promise.allSettled([
+      revalidateQuery(accountKey),
+      revalidateQuery(['getProfiles']),
+    ])
     throw error
   }
 }
@@ -74,17 +97,33 @@ async function accountMutation(action: () => Promise<AccountSnapshot>) {
 export const signIn = (email: string, password: string) =>
   accountMutation(() => xboardLogin(email.trim(), password))
 export const registerAccount = (input: {
-  email: string; password: string; email_code?: string; invite_code?: string
-}) => accountMutation(() => xboardRegister({
-  ...input, email_code: input.email_code ?? null, invite_code: input.invite_code ?? null,
-}))
+  email: string
+  password: string
+  email_code?: string
+  invite_code?: string
+}) =>
+  accountMutation(() =>
+    xboardRegister({
+      ...input,
+      email_code: input.email_code ?? null,
+      invite_code: input.invite_code ?? null,
+    }),
+  )
 export const signOut = () => accountMutation(xboardLogout)
-export const refreshAccount = (force = false) => accountMutation(() => xboardRefresh(force))
-export const completeOnboarding = () => accountMutation(xboardCompleteOnboarding)
+export const refreshAccount = (force = false) =>
+  accountMutation(() => xboardRefresh(force))
+export const completeOnboarding = () =>
+  accountMutation(xboardCompleteOnboarding)
 
-export async function accountRequest<T>(operation: AccountOperation, params: AccountParams = {}): Promise<AccountEnvelope<T>> {
+export async function accountRequest<T>(
+  operation: AccountOperation,
+  params: AccountParams = {},
+): Promise<AccountEnvelope<T>> {
   try {
-    return await xboardRequest(operation, params) as unknown as AccountEnvelope<T>
+    return (await xboardRequest(
+      operation,
+      params,
+    )) as unknown as AccountEnvelope<T>
   } catch (error) {
     snapshotVersion += 1
     await Promise.allSettled([revalidateQuery(accountKey)])
@@ -92,20 +131,37 @@ export async function accountRequest<T>(operation: AccountOperation, params: Acc
   }
 }
 
-export async function accountWrite(operation: AccountOperation, params: AccountParams = {}) {
-  const result = await mutate(() => accountRequest<unknown>(operation, params), {
-    id: 'xboard-account', errorNotice: false,
-    onFulfilled: () => { if (operation === 'reset_security') snapshotVersion += 1 },
-    revalidate: operation === 'reset_security' ? [accountKey, ['getProfiles']] : [accountKey],
-  })
+export async function accountWrite(
+  operation: AccountOperation,
+  params: AccountParams = {},
+) {
+  const result = await mutate(
+    () => accountRequest<unknown>(operation, params),
+    {
+      id: 'xboard-account',
+      errorNotice: false,
+      onFulfilled: () => {
+        if (operation === 'reset_security') snapshotVersion += 1
+      },
+      revalidate:
+        operation === 'reset_security'
+          ? [accountKey, ['getProfiles']]
+          : [accountKey],
+    },
+  )
   return result.value
 }
 
 export async function copyAccountLink(telegram = false) {
   try {
-    await mutate(telegram ? xboardCopyTelegramBinding : xboardCopySubscription, {
-      id: 'xboard-account', errorNotice: false, revalidate: [accountKey],
-    })
+    await mutate(
+      telegram ? xboardCopyTelegramBinding : xboardCopySubscription,
+      {
+        id: 'xboard-account',
+        errorNotice: false,
+        revalidate: [accountKey],
+      },
+    )
   } catch (error) {
     snapshotVersion += 1
     await Promise.allSettled([revalidateQuery(accountKey)])
@@ -114,16 +170,32 @@ export async function copyAccountLink(telegram = false) {
 }
 
 export async function copyInviteLink(code: string) {
-  await mutate(() => writeText(`https://ikun.iil.im/#/register?code=${encodeURIComponent(code)}`), {
-    id: 'xboard-clipboard', errorNotice: false,
-  })
+  await mutate(
+    () =>
+      writeText(
+        `https://ikun.iil.im/#/register?code=${encodeURIComponent(code)}`,
+      ),
+    {
+      id: 'xboard-clipboard',
+      errorNotice: false,
+    },
+  )
 }
 
 export async function openAccountWebsite(raw: string, telegram = false) {
   const url = new URL(raw, 'https://ikun.iil.im/')
-  if (url.protocol !== 'https:' || url.username || url.password ||
-      (telegram && (!['t.me', 'telegram.me'].includes(url.hostname) || (url.port && url.port !== '443')))) {
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    (telegram &&
+      (!['t.me', 'telegram.me'].includes(url.hostname) ||
+        (url.port && url.port !== '443')))
+  ) {
     throw new Error('Invalid website address')
   }
-  await mutate(() => openExternalUrl(url.href), { id: 'xboard-external-link', errorNotice: false })
+  await mutate(() => openExternalUrl(url.href), {
+    id: 'xboard-external-link',
+    errorNotice: false,
+  })
 }

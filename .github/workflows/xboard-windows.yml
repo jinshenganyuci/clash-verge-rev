@@ -47,19 +47,6 @@ jobs:
           package_json_file: app/package.json
           run_install: false
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.99.1'
-          targets: x86_64-pc-windows-msvc
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            app -> target
-            service -> target
-          cache-on-failure: true
-
       - name: Install locked frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -82,6 +69,19 @@ jobs:
           pnpm test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm arch:check
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            app -> target
+            service -> target
+          cache-on-failure: true
 
       - name: Prepare Windows x64 cores and isolated service
         run: pnpm prebuild x86_64-pc-windows-msvc

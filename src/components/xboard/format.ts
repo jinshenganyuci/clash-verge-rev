@@ -1,13 +1,18 @@
 export function accountDate(seconds: unknown) {
   const value = Number(seconds)
-  return Number.isFinite(value) && value > 0 ? new Date(value * 1000).toLocaleString() : '—'
+  return Number.isFinite(value) && value > 0
+    ? new Date(value * 1000).toLocaleString()
+    : '—'
 }
 
 export function accountBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes < 0) return '—'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let index = 0
-  while (bytes >= 1024 && index < units.length - 1) { bytes /= 1024; index += 1 }
+  while (bytes >= 1024 && index < units.length - 1) {
+    bytes /= 1024
+    index += 1
+  }
   return `${bytes.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })} ${units[index]}`
 }
 
@@ -20,12 +25,19 @@ export function centsFromInput(value: string): number | null {
 
 export function accountMoney(cents: unknown, symbol = '¥') {
   const value = Number(cents)
-  return Number.isSafeInteger(value) ? `${symbol}${(value / 100).toFixed(2)}` : '—'
+  return Number.isSafeInteger(value)
+    ? `${symbol}${(value / 100).toFixed(2)}`
+    : '—'
 }
 
-export const flag = (value: unknown) => value === true || value === 1 || value === '1' || value === 'true'
+export const flag = (value: unknown) =>
+  value === true || value === 1 || value === '1' || value === 'true'
 
-export function trafficValues(row: { u: number | string; d: number | string; server_rate?: number | string | null }) {
+export function trafficValues(row: {
+  u: number | string
+  d: number | string
+  server_rate?: number | string | null
+}) {
   const upload = Number(row.u)
   const download = Number(row.d)
   const rate = row.server_rate == null ? NaN : Number(row.server_rate)

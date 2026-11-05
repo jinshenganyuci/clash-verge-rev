@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AccountSnapshot } from './xboard'
+import {
+  accountWrite,
+  completeOnboarding,
+  readAccount,
+  refreshAccount,
+  signIn,
+  signOut,
+  type AccountSnapshot,
+} from './xboard'
 
 const backend = vi.hoisted(() => ({
   snapshot: vi.fn(), policy: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn(),
@@ -39,8 +47,6 @@ vi.mock('@/services/query-client', () => ({
 vi.mock('@/services/notice-service', () => ({ showNotice: { error: vi.fn(), success: vi.fn() } }))
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }))
 vi.mock('@/utils/open-external-url', () => ({ openExternalUrl: vi.fn() }))
-
-import { accountWrite, completeOnboarding, readAccount, refreshAccount, signIn, signOut } from './xboard'
 
 const guest = (): AccountSnapshot => ({
   onboarding_complete: false, signed_in: false, email: null,

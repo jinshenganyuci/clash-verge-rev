@@ -613,7 +613,13 @@ const ProfilePage = () => {
   }
 
   const selectAllProfiles = () => {
-    setSelectedProfiles(new Set(profileItems.filter((item) => item.uid !== 'xboard-account').map((item) => item.uid!)))
+    setSelectedProfiles(
+      new Set(
+        profileItems
+          .filter((item) => item.uid !== 'xboard-account')
+          .map((item) => item.uid!),
+      ),
+    )
   }
 
   const clearAllSelections = () => {
@@ -622,14 +628,19 @@ const ProfilePage = () => {
 
   const isAllSelected = () => {
     return (
-      selectedProfiles.size > 0 && profileItems.filter((item) => item.uid !== 'xboard-account').length === selectedProfiles.size
+      selectedProfiles.size > 0 &&
+      profileItems.filter((item) => item.uid !== 'xboard-account').length ===
+        selectedProfiles.size
     )
   }
 
   const getSelectionState = () => {
     if (selectedProfiles.size === 0) {
       return 'none'
-    } else if (selectedProfiles.size === profileItems.filter((item) => item.uid !== 'xboard-account').length) {
+    } else if (
+      selectedProfiles.size ===
+      profileItems.filter((item) => item.uid !== 'xboard-account').length
+    ) {
       return 'all'
     } else {
       return 'partial'

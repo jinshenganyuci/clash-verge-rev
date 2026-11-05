@@ -12,9 +12,9 @@ import {
   openDevTools,
   openLogsDir,
 } from '@/services/cmds'
+import { DOWNLOADS_URL } from '@/services/distribution'
 import { mutate } from '@/services/mutate'
 import { showNotice } from '@/services/notice-service'
-import { DOWNLOADS_URL } from '@/services/distribution'
 import { openExternalUrl } from '@/utils/open-external-url'
 import { version } from '@root/package.json'
 
