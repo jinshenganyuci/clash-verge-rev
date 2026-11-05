@@ -4,16 +4,24 @@ on:
   push:
     branches: [feat/xboard-windows-preview]
   workflow_dispatch:
+    inputs:
+      installer_run:
+        description: Existing workflow run ID to smoke test its installer without rebuilding
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: xboard-windows-${{ github.ref }}
+  group: xboard-windows-${{ github.ref }}-${{ inputs.installer_run || 'build' }}
   cancel-in-progress: true
 
 jobs:
   windows:
+    if: ${{ !inputs.installer_run }}
     runs-on: windows-2025
     timeout-minutes: 120
     defaults:
@@ -180,4 +188,44 @@ jobs:
         with:
           name: xboard-generated-sources
           path: app/ci-generated.patch
+          if-no-files-found: ignore
+
+  installed-ui:
+    if: ${{ inputs.installer_run }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: app
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26.13.0'
+
+      - name: Download the existing Windows x64 installer
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Clash-Verge-Xboard-windows-x64
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
+          path: downloaded-installer
+
+      - name: Smoke test the existing installer with current UI checks
+        timeout-minutes: 20
+        run: |
+          $installer = @(Get-ChildItem ../downloaded-installer/*-setup.exe)
+          if ($installer.Count -ne 1) { throw 'Expected exactly one x64 installer' }
+          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName -ExerciseMissingWebView2
+
+      - name: Upload installation UI smoke logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xboard-installed-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xboard-smoke-artifacts
           if-no-files-found: ignore
