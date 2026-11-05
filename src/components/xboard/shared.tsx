@@ -135,13 +135,10 @@ export function SectionHeading({
   return (
     <Stack
       direction="row"
-      justifyContent="space-between"
-      alignItems="center"
-      gap={2}
-      sx={{ mb: 2 }}
+      sx={{ justifyContent: "space-between", alignItems: "center", gap: 2,  mb: 2 }}
     >
       <Box>
-        <Typography variant="h6" fontWeight={600}>
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
           {title}
         </Typography>
         {description && (

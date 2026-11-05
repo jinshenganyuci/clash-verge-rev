@@ -169,7 +169,7 @@ export function AccountKnowledge() {
                     >
                       {articles[0].category ?? category}
                     </Typography>
-                    <Stack alignItems="flex-start">
+                    <Stack sx={{ alignItems: "flex-start" }}>
                       {articles.map((article) => (
                         <Button
                           key={article.id}
@@ -319,7 +319,7 @@ export function AccountTickets() {
           {ticket && (
             <AccountPanel>
               <Stack spacing={2}>
-                <Stack direction="row" gap={1} flexWrap="wrap">
+                <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
                   <Chip size="small" label={status(ticket)} />
                   <Chip size="small" label={levels[ticket.level] ?? '—'} />
                   <Typography variant="caption" color="text.secondary">
@@ -414,12 +414,9 @@ export function AccountTickets() {
               <AccountPanel key={row.id}>
                 <Stack
                   direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  gap={2}
-                >
+                 sx={{ justifyContent: "space-between", alignItems: "center", gap: 2 }}>
                   <Box>
-                    <Typography fontWeight={600}>{row.subject}</Typography>
+                    <Typography sx={{ fontWeight: 600 }}>{row.subject}</Typography>
                     <Typography variant="body2" color="text.secondary">
                       {status(row)} · {levels[row.level]} ·{' '}
                       {accountDate(row.updated_at)}

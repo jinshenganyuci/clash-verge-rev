@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { openExternalUrl } from '@/utils/open-external-url'
+
 import {
   accountWrite,
   completeOnboarding,
+  openAccountWebsite,
   readAccount,
   refreshAccount,
+  registerAccount,
   signIn,
   signOut,
   type AccountSnapshot,
@@ -91,6 +95,24 @@ beforeEach(() => {
 })
 
 describe('account lifecycle', () => {
+  it('does not repeat registration or complete onboarding when creation is uncertain', async () => {
+    const failure = {
+      code: 'XBOARD_REGISTRATION_UNCERTAIN',
+      detail: 'Registration could not be confirmed. Try signing in before registering again.',
+    }
+    backend.register.mockRejectedValue(failure)
+
+    await expect(registerAccount({
+      email: 'member@example.com', password: 'sample-password',
+      email_code: '123456', invite_code: 'sample-invite',
+    })).rejects.toBe(failure)
+
+    expect(backend.register).toHaveBeenCalledTimes(1)
+    expect(backend.onboarding).not.toHaveBeenCalled()
+    expect(state.cached?.onboarding_complete).toBe(false)
+    expect(state.writes).toHaveLength(0)
+  })
+
   it('preserves a failed login error without publishing a signed-in snapshot', async () => {
     const failure = {
       code: 'XBOARD_REQUEST_FAILED',
@@ -195,5 +217,23 @@ describe('account lifecycle', () => {
 
     expect(state.cached?.signed_in).toBe(false)
     expect(state.cached?.subscription).toBeNull()
+  })
+})
+
+describe('account external links', () => {
+  it('rejects scripts, insecure URLs and credential-bearing URLs before opening a browser', async () => {
+    for (const url of ['javascript:alert(1)', 'http://example.com/terms', 'https://user:pass@example.com/terms']) {
+      await expect(openAccountWebsite(url)).rejects.toThrow('Invalid website address')
+    }
+    expect(openExternalUrl).not.toHaveBeenCalled()
+  })
+
+  it('keeps Telegram actions on the approved HTTPS hosts and port', async () => {
+    await expect(openAccountWebsite('https://t.me.evil.example/bot', true)).rejects.toThrow('Invalid website address')
+    await expect(openAccountWebsite('https://t.me:8443/bot', true)).rejects.toThrow('Invalid website address')
+    expect(openExternalUrl).not.toHaveBeenCalled()
+
+    await openAccountWebsite('https://t.me/example_bot', true)
+    expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('https://t.me/example_bot')
   })
 })

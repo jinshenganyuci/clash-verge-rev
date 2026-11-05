@@ -181,11 +181,9 @@ function AccountSettingsForm({
       <AccountPanel>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
-          justifyContent="space-between"
-          gap={2}
-        >
+         sx={{ justifyContent: "space-between", gap: 2 }}>
           <Box>
-            <Typography fontWeight={600}>{info.email}</Typography>
+            <Typography sx={{ fontWeight: 600 }}>{info.email}</Typography>
             <Typography color="text.secondary" variant="body2">
               {text('账户余额（仅消费）', 'Balance (purchases only)')}
             </Typography>
@@ -255,7 +253,7 @@ function AccountSettingsForm({
           <Typography variant="h6" sx={{ mb: 1 }}>
             Telegram
           </Typography>
-          <Stack direction="row" flexWrap="wrap" gap={1}>
+          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
             {flag(config.is_telegram) &&
               (Number(info.telegram_id) > 0 ? (
                 <Typography color="text.secondary">
@@ -292,7 +290,7 @@ function AccountSettingsForm({
                         `Copy the binding command and send it privately to @${bot}. It contains your private subscription link.`,
                       )}
                     </Typography>
-                    <Stack direction="row" gap={1} flexWrap="wrap">
+                    <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
                       <Button
                         startIcon={<ContentCopyOutlined />}
                         disabled={task.busy}

@@ -20,7 +20,10 @@ export type AccountSnapshot = Awaited<ReturnType<typeof xboardSnapshot>>
 export type AccountOperation = Parameters<typeof xboardRequest>[0]
 
 export type AccountParams = Record<string, string | number>
-export type AccountEnvelope<T> = Omit<Awaited<ReturnType<typeof xboardRequest>>, 'data'> & { data: T }
+export type AccountEnvelope<T> = Omit<
+  Awaited<ReturnType<typeof xboardRequest>>,
+  'data'
+> & { data: T }
 export const accountKey = ['xboardSnapshot'] as const
 export const readRegistrationPolicy = () => xboardRegistrationPolicy()
 let snapshotVersion = 0

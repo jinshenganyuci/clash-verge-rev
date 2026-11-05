@@ -163,7 +163,7 @@ function AccountContent() {
                             <Box sx={{ color: 'primary.main' }}>
                               {entry.icon}
                             </Box>
-                            <Typography variant="subtitle1" fontWeight={600}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                               {entry.title}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">

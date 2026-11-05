@@ -41,14 +41,13 @@ export function AccountOverview() {
     <AccountPanel>
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
-        justifyContent="space-between"
         spacing={2}
-      >
+       sx={{ justifyContent: "space-between" }}>
         <Box>
           <Typography variant="overline" color="primary">
             {text('我的套餐', 'My plan')}
           </Typography>
-          <Typography variant="h5" fontWeight={700}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
             {sub?.plan_name ||
               (sub?.plan_id != null
                 ? text('已订阅套餐', 'Subscribed plan')
@@ -81,7 +80,7 @@ export function AccountOverview() {
       </Stack>
       {!!sub?.total && (
         <Box sx={{ mt: 3 }}>
-          <Stack direction="row" justifyContent="space-between">
+          <Stack direction="row" sx={{ justifyContent: "space-between" }}>
             <Typography variant="body2">
               {text('已用流量', 'Data usage')}
             </Typography>
@@ -120,7 +119,7 @@ export function AccountOverview() {
         </Alert>
       )}
       <TaskMessage message={task.message} />
-      <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 3 }}>
+      <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1,  mt: 3 }}>
         <Button
           startIcon={<RefreshRounded />}
           variant="contained"
@@ -193,11 +192,10 @@ export function HomeAccountCard() {
     >
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
-        justifyContent="space-between"
         spacing={1}
-      >
+       sx={{ justifyContent: "space-between" }}>
         <Box>
-          <Typography fontWeight={600}>
+          <Typography sx={{ fontWeight: 600 }}>
             {account?.signed_in
               ? sub?.plan_name || text('暂无套餐', 'No active plan')
               : text('登录后自动同步订阅', 'Sign in to sync your subscription')}

@@ -143,7 +143,7 @@ export function AccountInvite() {
             )}
             {records.data?.data.map((row) => (
               <AccountPanel key={row.id ?? `${row.trade_no}-${row.created_at}`}>
-                <Typography fontWeight={600}>
+                <Typography sx={{ fontWeight: 600 }}>
                   {accountMoney(row.get_amount, symbol)}
                 </Typography>
                 <Typography variant="body2">
@@ -157,9 +157,7 @@ export function AccountInvite() {
             ))}
             <Stack
               direction="row"
-              justifyContent="space-between"
-              alignItems="center"
-            >
+             sx={{ justifyContent: "space-between", alignItems: "center" }}>
               <Button
                 disabled={page <= 1 || records.isFetching}
                 onClick={() => setPage(page - 1)}
@@ -193,7 +191,7 @@ export function AccountInvite() {
                 <Typography color="text.secondary">
                   {text('可用佣金', 'Available commission')}
                 </Typography>
-                <Typography variant="h4" fontWeight={700} sx={{ my: 1 }}>
+                <Typography variant="h4" sx={{ fontWeight: 700,  my: 1 }}>
                   {accountMoney(available, symbol)}
                 </Typography>
                 <Box
@@ -241,7 +239,7 @@ export function AccountInvite() {
                     {config?.commission_distribution_l3 ?? 0}%
                   </Typography>
                 )}
-                <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
+                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1,  mt: 2 }}>
                   <Button
                     variant="contained"
                     disabled={task.busy || available <= 0}
@@ -301,10 +299,7 @@ export function AccountInvite() {
                     <Stack
                       key={item.code}
                       direction="row"
-                      justifyContent="space-between"
-                      alignItems="center"
-                      gap={2}
-                    >
+                     sx={{ justifyContent: "space-between", alignItems: "center", gap: 2 }}>
                       <Box>
                         <Typography sx={{ userSelect: 'text' }}>
                           {item.code}

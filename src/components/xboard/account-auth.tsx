@@ -162,9 +162,9 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
 
   return (
     <Box sx={{ width: '100%', maxWidth: 460, mx: 'auto', py: welcome ? 3 : 1 }}>
-      <Stack spacing={1} alignItems="center" sx={{ mb: 3 }}>
+      <Stack spacing={1} sx={{ alignItems: "center",  mb: 3 }}>
         <AccountCircleOutlined sx={{ fontSize: 54, color: 'primary.main' }} />
-        <Typography variant="h4" fontWeight={700}>
+        <Typography variant="h4" sx={{ fontWeight: 700 }}>
           {welcome
             ? text(
                 '欢迎使用 Clash Verge Xboard',
@@ -172,7 +172,7 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
               )
             : text('登录账户', 'Sign in')}
         </Typography>
-        <Typography color="text.secondary" textAlign="center">
+        <Typography color="text.secondary" sx={{ textAlign: "center" }}>
           {text(
             '登录会员账号，自动同步套餐与订阅。',
             'Sign in to sync your membership and subscription.',
@@ -262,7 +262,7 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
                         onChange={(event) => setConfirm(event.target.value)}
                       />
                       {emailRequired && (
-                        <Stack direction="row" spacing={1} alignItems="center">
+                        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                           <TextField
                             label={text('邮箱验证码', 'Email code')}
                             value={code}
@@ -352,9 +352,8 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
       </AccountPanel>
       <Stack
         direction="row"
-        justifyContent="center"
         spacing={0.5}
-        sx={{ mt: 2, color: 'text.secondary' }}
+        sx={{ justifyContent: "center",  mt: 2, color: 'text.secondary' }}
       >
         <LockOutlined sx={{ fontSize: 16 }} />
         <Typography variant="caption">ikun.iil.im</Typography>

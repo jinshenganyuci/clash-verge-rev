@@ -85,11 +85,8 @@ export function AccountNodes() {
             <AccountPanel key={row.id ?? `${row.name}-${row.type}-${row.rate}`}>
               <Stack
                 direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                gap={2}
-              >
-                <Typography fontWeight={600}>{row.name}</Typography>
+               sx={{ justifyContent: "space-between", alignItems: "center", gap: 2 }}>
+                <Typography sx={{ fontWeight: 600 }}>{row.name}</Typography>
                 <Chip
                   size="small"
                   color={flag(row.is_online) ? 'success' : 'default'}
@@ -102,7 +99,7 @@ export function AccountNodes() {
                   }
                 />
               </Stack>
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ my: 1 }}>
+              <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1,  my: 1 }}>
                 {row.type && (
                   <Chip
                     size="small"
@@ -355,12 +352,9 @@ export function AccountOrders() {
               <AccountPanel key={row.trade_no}>
                 <Stack
                   direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  gap={2}
-                >
+                 sx={{ justifyContent: "space-between", alignItems: "center", gap: 2 }}>
                   <Box>
-                    <Typography fontWeight={600}>
+                    <Typography sx={{ fontWeight: 600 }}>
                       {row.plan?.name || row.trade_no}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">

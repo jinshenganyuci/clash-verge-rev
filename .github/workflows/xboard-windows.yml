@@ -101,13 +101,23 @@ jobs:
           pnpm gen:contract
 
       - name: Typecheck generated frontend contracts
+        id: typecheck
+        continue-on-error: true
         run: pnpm typecheck
 
       - name: Rust code quality
+        id: clippy
+        continue-on-error: true
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Xboard backend tests
+        id: backend_tests
+        continue-on-error: true
         run: cargo test -p clash-verge --lib xboard --locked --features clippy
+
+      - name: Require all validation checks before packaging
+        if: steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success'
+        run: throw 'TypeScript, Clippy and backend tests must all pass before building an installer.'
 
       - name: Build the Windows x64 installer
         run: pnpm exec tauri build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
