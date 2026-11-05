@@ -191,11 +191,7 @@ export function HomeAccountCard() {
         </Button>
       }
     >
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={1}
-        sx={{ justifyContent: 'space-between' }}
-      >
+      <Stack spacing={1} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <Box>
           <Typography sx={{ fontWeight: 600 }}>
             {account?.signed_in

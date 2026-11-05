@@ -30,10 +30,8 @@ import { ClashModeCard } from '@/components/home/clash-mode-card'
 import { CurrentProxyCard } from '@/components/home/current-proxy-card'
 import { EnhancedCard } from '@/components/home/enhanced-card'
 import { EnhancedTrafficStats } from '@/components/home/enhanced-traffic-stats'
-import { HomeProfileCard } from '@/components/home/home-profile-card'
 import { ProxyTunCard } from '@/components/home/proxy-tun-card'
 import { HomeAccountCard } from '@/components/xboard/account-overview'
-import { useProfiles } from '@/hooks/use-profiles'
 import { useVerge } from '@/hooks/use-verge'
 import { entry_lightweight_mode } from '@/services/cmds'
 import { mutate } from '@/services/mutate'
@@ -145,7 +143,7 @@ const HomeSettingsDialog = ({
                 onChange={() => handleToggle('profile')}
               />
             }
-            label={t('home.page.settings.cards.profile')}
+            label={t('layout.components.navigation.tabs.account')}
           />
           <FormControlLabel
             control={
@@ -234,7 +232,6 @@ const HomeSettingsDialog = ({
 const HomePage = () => {
   const { t } = useTranslation()
   const { verge } = useVerge()
-  const { current, mutateProfiles } = useProfiles()
 
   // 设置弹窗的状态
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -270,15 +267,12 @@ const HomePage = () => {
 
   const criticalCards = useMemo(
     () => [
-      renderCard(
-        'profile',
-        <HomeProfileCard current={current} onProfileUpdated={mutateProfiles} />,
-      ),
+      renderCard('profile', <HomeAccountCard />),
       renderCard('proxy', <CurrentProxyCard />),
       renderCard('network', <NetworkSettingsCard />),
       renderCard('mode', <ClashModeEnhancedCard />),
     ],
-    [current, mutateProfiles, renderCard],
+    [renderCard],
   )
 
   const nonCriticalCards = useMemo(
@@ -355,9 +349,6 @@ const HomePage = () => {
       }
     >
       <Grid container spacing={1.5} columns={{ xs: 6, sm: 6, md: 12 }}>
-        <Grid size={{ xs: 6, md: 12 }}>
-          <HomeAccountCard />
-        </Grid>
         {criticalCards}
 
         {nonCriticalCards}
