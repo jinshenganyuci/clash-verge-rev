@@ -96,9 +96,12 @@ try {
                 throw "A different application owns scheduled task $newTaskName."
             }
             [xml] $definition = Export-ScheduledTask -TaskName $oldTaskName -TaskPath '\'
-            $definition.Task.Actions.Exec.Command = $newBinary
-            if ($definition.Task.Actions.Exec.WorkingDirectory) { $definition.Task.Actions.Exec.WorkingDirectory = $destination }
-            if ($definition.Task.RegistrationInfo.URI) { $definition.Task.RegistrationInfo.URI = "\$newTaskName" }
+            $commandNode = $definition.SelectSingleNode('/*[local-name()="Task"]/*[local-name()="Actions"]/*[local-name()="Exec"]/*[local-name()="Command"]')
+            $commandNode.InnerText = [string] $newBinary
+            $workingDirectoryNode = $definition.SelectSingleNode('/*[local-name()="Task"]/*[local-name()="Actions"]/*[local-name()="Exec"]/*[local-name()="WorkingDirectory"]')
+            if ($workingDirectoryNode) { $workingDirectoryNode.InnerText = [string] $destination }
+            $uriNode = $definition.SelectSingleNode('/*[local-name()="Task"]/*[local-name()="RegistrationInfo"]/*[local-name()="URI"]')
+            if ($uriNode) { $uriNode.InnerText = [string] "\$newTaskName" }
             Register-ScheduledTask -TaskName $newTaskName -TaskPath '\' -Xml $definition.OuterXml -Force | Out-Null
         }
         Unregister-ScheduledTask -TaskName $oldTaskName -TaskPath '\' -Confirm:$false

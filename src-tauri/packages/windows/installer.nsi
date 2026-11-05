@@ -92,7 +92,8 @@ ${StrLoc}
   nsExec::ExecToLog '"$R8" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\ikun-migrate.ps1" ${ARGUMENTS}'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONSTOP "Could not update IKUN shortcuts or startup settings ($0)."
+    MessageBox MB_OK|MB_ICONSTOP "Could not update IKUN shortcuts or startup settings ($0)." /SD IDOK
+    SetErrorLevel 1
     Abort
   ${EndIf}
 !macroend
@@ -842,7 +843,8 @@ Section Install
 
   ${If} $LegacyInstallDirectory != ""
     ${IfNot} ${FileExists} "$LegacyInstallDirectory\uninstall.exe"
-      MessageBox MB_OK|MB_ICONSTOP "The previous preview uninstaller is missing. Repair that installation before upgrading to IKUN."
+      MessageBox MB_OK|MB_ICONSTOP "The previous preview uninstaller is missing. Repair that installation before upgrading to IKUN." /SD IDOK
+      SetErrorLevel 1
       Abort
     ${EndIf}
     SimpleSC::ExistsService "clash_verge_service_xboard"
@@ -853,7 +855,8 @@ Section Install
     ${If} ${Errors}
     ${OrIf} $0 != 0
     ${OrIf} ${FileExists} "$LegacyInstallDirectory\clash-verge-xboard.exe"
-      MessageBox MB_OK|MB_ICONSTOP "The previous preview could not be removed. Your account data has been retained."
+      MessageBox MB_OK|MB_ICONSTOP "The previous preview could not be removed. Your account data has been retained." /SD IDOK
+      SetErrorLevel 1
       Abort
     ${EndIf}
     Delete "$LegacyInstallDirectory\uninstall.exe"
@@ -900,7 +903,8 @@ Section Install
     nsExec::ExecToLog '"$INSTDIR\resources\clash-verge-service-install.exe"'
     Pop $0
     ${If} $0 != 0
-      MessageBox MB_OK|MB_ICONSTOP "Could not restore the IKUN service ($0)."
+      MessageBox MB_OK|MB_ICONSTOP "Could not restore the IKUN service ($0)." /SD IDOK
+      SetErrorLevel 1
       Abort
     ${EndIf}
   ${EndIf}
