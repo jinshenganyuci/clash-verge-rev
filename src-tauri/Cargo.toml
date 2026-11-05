@@ -1,6 +1,6 @@
 [package]
 name = "clash-verge"
-version = "2.5.10"
+version = "2.5.11"
 description = "clash verge"
 authors = ["zzzgydi", "Tunglies", "wonfen", "MystiPanda"]
 license = "GPL-3.0-only"
@@ -98,7 +98,7 @@ tracing = { workspace = true }
 tauri-plugin-devtools = { version = "2.2.2", optional = true }
 tauri-plugin-mihomo = { git = "https://github.com/clash-verge-rev/tauri-plugin-mihomo", rev = "7a03d16f4d39b1bb885b7babe66b9e153e34b615" }
 async-trait = "0.1.92"
-clash_verge_service_ipc = { git = "https://github.com/jinshenganyuci/clash-verge-service-ipc.git", rev = "db6842cd2a219901b821ddb4d2d57cbe0dd09b02", version = "2.7.7", features = [
+clash_verge_service_ipc = { git = "https://github.com/jinshenganyuci/clash-verge-service-ipc.git", rev = "f1eec0aa31f3ba2ae1115b3febc2402034f08acd", version = "2.7.7", features = [
   "client",
   "xboard-channel",
 ] }

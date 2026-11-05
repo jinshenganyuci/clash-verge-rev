@@ -3,6 +3,7 @@ use crate::xboard::{
     self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy, XboardRequestParams,
     XboardSnapshot,
 };
+use crate::xboard::guide::{XboardGuideMode, XboardGuideSnapshot};
 
 fn failure(error: xboard::Error) -> super::CommandFailure {
     coded_error(error.code, error)
@@ -69,4 +70,34 @@ pub async fn xboard_copy_subscription() -> CmdResult {
 #[specta::specta]
 pub async fn xboard_copy_telegram_binding() -> CmdResult {
     xboard::copy_subscription(true).await.map_err(failure)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn xboard_guide_snapshot() -> CmdResult<XboardGuideSnapshot> {
+    Ok(xboard::guide::snapshot())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn xboard_guide_prepare() -> CmdResult<XboardGuideSnapshot> {
+    xboard::guide::prepare().map_err(failure)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn xboard_guide_cancel() -> CmdResult<XboardGuideSnapshot> {
+    xboard::guide::cancel().await.map_err(failure)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn xboard_guide_connect(attempt_id: u64, mode: XboardGuideMode) -> CmdResult<XboardGuideSnapshot> {
+    xboard::guide::connect(attempt_id, mode).map_err(failure)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn xboard_guide_complete(attempt_id: u64) -> CmdResult<XboardGuideSnapshot> {
+    xboard::guide::complete(attempt_id).await.map_err(failure)
 }

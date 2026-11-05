@@ -157,7 +157,7 @@
   "components": {
     "verge": {
       "basic": {
-        "title": "Verge 基礎設定",
+        "title": "IKUN 基礎設定",
         "actions": {
           "browse": "瀏覽"
         },
@@ -180,7 +180,7 @@
         }
       },
       "advanced": {
-        "title": "Verge 進階設定",
+        "title": "IKUN 進階設定",
         "tooltips": {
           "backupInfo": "支援本機或 WebDAV 方式備份配置檔案",
           "openConfDir": "如果軟體執行異常，!備份!並刪除此資料夾下的所有檔案，重新啟動軟體",
@@ -204,7 +204,7 @@
           "liteModeSettings": "輕量模式設定",
           "exit": "離開",
           "exportDiagnostics": "匯出診斷資訊",
-          "vergeVersion": "Verge 版本"
+          "vergeVersion": "IKUN 版本"
         }
       },
       "theme": {
@@ -672,11 +672,11 @@
         "coreAlreadyRunning": "無法啟動核心：已有核心程序正在執行。請結束相關應用程式或清理殘留程序後重試。若仍無法解決，請重新啟動電腦。"
       },
       "sysproxy": {
-        "privilegeRequired": "無法設定系統代理：macOS 以權限不足為由拒絕了這次修改。請安裝 Clash Verge 服務；管理者也可以在系統設定 → 隱私權與安全性的進階選項中，關閉存取系統層級設定需要管理者密碼的要求。",
+        "privilegeRequired": "無法設定系統代理：macOS 以權限不足為由拒絕了這次修改。請安裝 IKUN 服務；管理者也可以在系統設定 → 隱私權與安全性的進階選項中，關閉存取系統層級設定需要管理者密碼的要求。",
         "directFallback": "系統代理設定失敗，已回退為直連。",
         "guardStopped": "系統代理守衛連續多次失敗後已停止，系統代理不再被自動維持。",
-        "sidecarWhileServiceReady": "系統代理設定失敗：Clash Verge 服務已就緒，但內核仍以 Sidecar 執行。重新啟動內核即可切換到服務模式。",
-        "coreNotReady": "無法開啟系統代理：內核尚未執行。請先啟動內核（或安裝/修復 Clash Verge 服務）後重試。",
+        "sidecarWhileServiceReady": "系統代理設定失敗：IKUN 服務已就緒，但內核仍以 Sidecar 執行。重新啟動內核即可切換到服務模式。",
+        "coreNotReady": "無法開啟系統代理：內核尚未執行。請先啟動內核（或安裝/修復 IKUN 服務）後重試。",
         "systemCallFailed": "系統代理寫入失敗：Windows 系統呼叫未成功，通常是瞬時故障。請稍後重試。"
       }
     },

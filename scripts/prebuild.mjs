@@ -723,20 +723,22 @@ async function resolveCoreHashes() {
       .digest('hex')
     lines.push(`!define ${define} "${digest}"`)
   }
-  const cleanupScript = await fsp.readFile(
-    path.join(cwd, 'scripts', 'stop-xboard-processes.ps1'),
-    'utf8',
-  )
-  lines.push(
-    '!macro WriteXboardCleanupScript',
-    '  InitPluginsDir',
-    '  FileOpen $0 "$PLUGINSDIR\\xboard-stop.ps1" w',
-  )
-  for (const line of cleanupScript.trimEnd().split(/\r?\n/)) {
-    const escaped = line.replaceAll('$', '$$$$').replaceAll('"', '$\\"')
-    lines.push(`  FileWrite $0 "${escaped}$\\r$\\n"`)
+  for (const [name, macro, output] of [
+    ['stop-xboard-processes.ps1', 'WriteXboardCleanupScript', 'xboard-stop.ps1'],
+    ['migrate-ikun-install.ps1', 'WriteIkunMigrationScript', 'ikun-migrate.ps1'],
+  ]) {
+    const script = await fsp.readFile(path.join(cwd, 'scripts', name), 'utf8')
+    lines.push(
+      `!macro ${macro}`,
+      '  InitPluginsDir',
+      `  FileOpen $0 "$PLUGINSDIR\\${output}" w`,
+    )
+    for (const line of script.trimEnd().split(/\r?\n/)) {
+      const escaped = line.replaceAll('$', '$$$$').replaceAll('"', '$\\"')
+      lines.push(`  FileWrite $0 "${escaped}$\\r$\\n"`)
+    }
+    lines.push('  FileClose $0', '!macroend')
   }
-  lines.push('  FileClose $0', '!macroend')
   await fsp.writeFile(CORE_HASHES_NSH, `${lines.join('\n')}\n`)
   log_success(`Generated ${CORE_HASHES_NSH}`)
 }

@@ -46,6 +46,7 @@ import { useRecordSelection } from '@/hooks/use-record-selection'
 import { useAppRefreshers, useProxiesData } from '@/providers/app-data-context'
 import { updateProxyChainConfigInRuntime } from '@/services/cmds'
 import { mutate } from '@/services/mutate'
+import { interruptConnectionGuide } from '@/services/xboard'
 import {
   selectGlobalChainNodes,
   selectRuleChainMembers,
@@ -447,6 +448,7 @@ export const ProxyChain = ({
     if (isConnected) {
       setIsConnecting(true)
       try {
+        await interruptConnectionGuide()
         const result = await mutate(
           () => updateProxyChainConfigInRuntime(null),
           {
@@ -522,6 +524,7 @@ export const ProxyChain = ({
 
     setIsConnecting(true)
     try {
+      await interruptConnectionGuide()
       // 第一步：保存链式代理配置
       const chainProxies = currentProxyChain.map((node) => node.name)
       debugLog('Saving chain config:', chainProxies)

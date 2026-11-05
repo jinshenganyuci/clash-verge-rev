@@ -61,9 +61,11 @@ ${StrLoc}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
-!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
+; Registry identity remains stable across the IKUN rebrand; only display values change.
+!define LEGACYPRODUCTNAME "Clash Verge Xboard"
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${LEGACYPRODUCTNAME}"
 !define MANUKEY "Software\${MANUFACTURER}"
-!define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
+!define MANUPRODUCTKEY "${MANUKEY}\${LEGACYPRODUCTNAME}"
 !define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
 !define ESTIMATEDSIZE "{{estimated_size}}"
 !define STARTMENUFOLDER "{{start_menu_folder}}"
@@ -79,11 +81,29 @@ ${StrLoc}
   ${EndIf}
 !macroend
 
+!macro MigrateIkunIntegration ARGUMENTS
+  !insertmacro WriteIkunMigrationScript
+  System::Call 'kernel32::SetEnvironmentVariable(t "IKUN_PREVIOUS_INSTALL_DIRECTORY", t "$LegacyInstallDirectory") i .r0'
+  System::Call 'kernel32::SetEnvironmentVariable(t "IKUN_INSTALL_DIRECTORY", t "$INSTDIR") i .r0'
+  StrCpy $R8 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+  ${If} ${FileExists} "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+    StrCpy $R8 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+  ${EndIf}
+  nsExec::ExecToLog '"$R8" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\ikun-migrate.ps1" ${ARGUMENTS}'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_OK|MB_ICONSTOP "Could not update IKUN shortcuts or startup settings ($0)."
+    Abort
+  ${EndIf}
+!macroend
+
 Var PassiveMode
 Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
+Var LegacyInstallDirectory
+Var LegacyServiceInstalled
 Var VC_REDIST_URL
 Var VC_REDIST_EXE
 Var VC_RUNTIME_READY
@@ -185,6 +205,8 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
 Function PageReinstall
+  ; The first preview is migrated once during installation, with its data retained.
+  ${IfThen} $LegacyInstallDirectory != "" ${|} Abort ${|}
   ; Uninstall previous WiX installation if exists.
   ;
   ; A WiX installer stores the installation info in registry
@@ -515,6 +537,18 @@ Function .onInit
 
   !insertmacro SetContext
 
+  ReadRegStr $0 SHCTX "${UNINSTKEY}" "DisplayName"
+  ReadRegStr $1 SHCTX "${UNINSTKEY}" "Publisher"
+  ReadRegStr $2 SHCTX "${UNINSTKEY}" "MainBinaryName"
+  ${If} $0 == "${LEGACYPRODUCTNAME}"
+  ${AndIf} $1 == "${MANUFACTURER}"
+  ${AndIf} $2 == "clash-verge-xboard.exe"
+    ReadRegStr $LegacyInstallDirectory SHCTX "${MANUPRODUCTKEY}" ""
+    ${IfNot} ${FileExists} "$LegacyInstallDirectory\clash-verge-xboard.exe"
+      StrCpy $LegacyInstallDirectory ""
+    ${EndIf}
+  ${EndIf}
+
   ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
     ; Set default install location
     !if "${INSTALLMODE}" == "perMachine"
@@ -805,6 +839,27 @@ Section Install
   !endif
 
   !insertmacro StopXboardProcesses
+
+  ${If} $LegacyInstallDirectory != ""
+    ${IfNot} ${FileExists} "$LegacyInstallDirectory\uninstall.exe"
+      MessageBox MB_OK|MB_ICONSTOP "The previous preview uninstaller is missing. Repair that installation before upgrading to IKUN."
+      Abort
+    ${EndIf}
+    SimpleSC::ExistsService "clash_verge_service_xboard"
+    Pop $0
+    ${IfThen} $0 == 0 ${|} StrCpy $LegacyServiceInstalled 1 ${|}
+    ClearErrors
+    ExecWait '"$LegacyInstallDirectory\uninstall.exe" /S /UPDATE _?=$LegacyInstallDirectory' $0
+    ${If} ${Errors}
+    ${OrIf} $0 != 0
+    ${OrIf} ${FileExists} "$LegacyInstallDirectory\clash-verge-xboard.exe"
+      MessageBox MB_OK|MB_ICONSTOP "The previous preview could not be removed. Your account data has been retained."
+      Abort
+    ${EndIf}
+    Delete "$LegacyInstallDirectory\uninstall.exe"
+    RMDir "$LegacyInstallDirectory"
+  ${EndIf}
+
   !insertmacro SetContext
 
   ; Copy main executable
@@ -841,6 +896,14 @@ Section Install
     ${IfThen} $0 != 0 ${|} DetailPrint "Staging verge-mihomo-alpha returned $0" ${|}
   !endif
 
+  ${If} $LegacyServiceInstalled == 1
+    nsExec::ExecToLog '"$INSTDIR\resources\clash-verge-service-install.exe"'
+    Pop $0
+    ${If} $0 != 0
+      MessageBox MB_OK|MB_ICONSTOP "Could not restore the IKUN service ($0)."
+      Abort
+    ${EndIf}
+  ${EndIf}
   !insertmacro StartVergeService
 
   ; Create file associations
@@ -889,6 +952,10 @@ Section Install
   WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoModify" "1"
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoRepair" "1"
+
+  ${If} $LegacyInstallDirectory != ""
+    !insertmacro MigrateIkunIntegration ""
+  ${EndIf}
 
   ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
   IntOp $0 $0 + ${ESTIMATEDSIZE}
@@ -963,6 +1030,9 @@ Section Uninstall
   !endif
 
   !insertmacro StopXboardProcesses
+  ${If} $UpdateMode <> 1
+    !insertmacro MigrateIkunIntegration "-Uninstall"
+  ${EndIf}
   !insertmacro RemoveVergeService
   !insertmacro SetContext
 
@@ -1089,6 +1159,7 @@ Section Uninstall
 SectionEnd
 
 Function RestorePreviousInstallLocation
+  ${IfThen} $LegacyInstallDirectory != "" ${|} Return ${|}
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
   StrCmp $4 "" +2 0
     StrCpy $INSTDIR $4

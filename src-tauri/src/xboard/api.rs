@@ -77,7 +77,7 @@ fn client() -> Result<Client> {
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(25))
-        .user_agent("IKUN-Windows/2.5.10")
+        .user_agent(concat!("IKUN-Windows/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|_| Error::network())
 }

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string] $InstallerPath,
+    [string] $PreviousInstallerPath,
     [switch] $ExerciseMissingWebView2
 )
 
@@ -13,21 +14,25 @@ $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.Wind
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'The packaging smoke test requires an elevated runner.'
 }
-foreach ($script in @($PSCommandPath, (Join-Path $PSScriptRoot 'stop-xboard-processes.ps1'))) {
+foreach ($script in @($PSCommandPath, (Join-Path $PSScriptRoot 'stop-xboard-processes.ps1'), (Join-Path $PSScriptRoot 'migrate-ikun-install.ps1'))) {
     $tokens = $null
     $parseErrors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 }
 $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
+if ($PreviousInstallerPath) { $PreviousInstallerPath = (Resolve-Path -LiteralPath $PreviousInstallerPath).Path }
 $marker = 'xboard-smoke-' + [Guid]::NewGuid().ToString('N')
-$installRoot = Join-Path $env:ProgramFiles 'Clash Verge Xboard CI'
+$installRoot = Join-Path $env:ProgramFiles 'IKUN'
+$legacyRoot = Join-Path $env:ProgramFiles 'Clash Verge Xboard'
+$activeInstallRoot = if ($PreviousInstallerPath) { $legacyRoot } else { $installRoot }
 $appData = Join-Path $env:APPDATA 'io.github.jinshenganyuci.clash-verge-xboard'
 $serviceRoot = Join-Path $env:ProgramData 'clash-verge-service-xboard'
 $upstreamData = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'
 $upstreamServiceRoot = Join-Path $env:ProgramData 'clash-verge-service'
 $sentinelRoot = Join-Path $env:RUNNER_TEMP $marker
-$artifacts = Join-Path $env:RUNNER_TEMP 'xboard-smoke-artifacts'
+$artifactDirectory = if ($PreviousInstallerPath) { 'ikun-upgrade-smoke-artifacts' } else { 'ikun-smoke-artifacts' }
+$artifacts = Join-Path $env:RUNNER_TEMP $artifactDirectory
 $serviceName = 'clash_verge_service_xboard'
 $upstreamServiceName = 'clash_verge_service'
 $upstreamServiceBinary = "$env:SystemRoot\System32\cmd.exe /c exit 0"
@@ -186,10 +191,10 @@ function Wait-AppReady([Diagnostics.Process] $Process) {
     throw 'Installed app did not create its own config, visible 640x400 window and WebView2 process within 60 seconds.'
 }
 
-function Assert-AppUI([Diagnostics.Process] $Process, [int] $Port, [string] $Mode) {
+function Assert-AppUI([Diagnostics.Process] $Process, [int] $Port, [string] $Mode, [string] $Brand = 'IKUN') {
     $diagnostics = Get-Content -LiteralPath (Join-Path $artifacts "$Mode-webview-processes.json") -Raw | ConvertFrom-Json
     $debugEnabled = @($diagnostics.DirectWebViewProcesses | Where-Object HasExpectedDebugPort).Count -gt 0
-    if ($debugEnabled) {
+    if ($debugEnabled -and $Brand -eq 'IKUN') {
         $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
         $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
         Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180 "$Mode-ui"
@@ -206,7 +211,8 @@ param(
     [Parameter(Mandatory = $true)][long] $WindowHandle,
     [Parameter(Mandatory = $true)][ValidateSet('first-run', 'reinstall')][string] $Mode,
     [Parameter(Mandatory = $true)][string] $Artifacts,
-    [Parameter(Mandatory = $true)][string] $DataDirectory
+    [Parameter(Mandatory = $true)][string] $DataDirectory,
+    [Parameter(Mandatory = $true)][string] $Brand
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -267,7 +273,7 @@ public static class XboardUiaInput {
             } catch [System.Windows.Automation.ElementNotAvailableException] { }
         })
         $script:lastNames = @($items | ForEach-Object { $_.Name.Substring(0, [Math]::Min(160, $_.Name.Length)) } | Select-Object -Unique -First 80)
-        $welcome = Find-NamedControl $items @('欢迎使用 Clash Verge Xboard', 'Welcome to Clash Verge Xboard')
+        $welcome = Find-NamedControl $items @("欢迎使用 $Brand", "Welcome to $Brand")
         $login = Find-NamedControl $items @('登录', 'Sign in')
         $register = Find-NamedControl $items @('注册账号', 'Register')
         $skip = Find-NamedControl $items @('暂时跳过，进入客户端', 'Skip for now and open the client')
@@ -345,7 +351,7 @@ public static class XboardUiaInput {
 }
 '@
     Set-Content -LiteralPath $helper -Value $uiaScript -Encoding utf8BOM
-    Invoke-BoundedProcess $legacyPowerShell "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helper`" -WindowHandle $($window.ToInt64()) -Mode $Mode -Artifacts `"$artifacts`" -DataDirectory `"$appData`"" 180 "$Mode-ui"
+    Invoke-BoundedProcess $legacyPowerShell "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helper`" -WindowHandle $($window.ToInt64()) -Mode $Mode -Artifacts `"$artifacts`" -DataDirectory `"$appData`" -Brand `"$Brand`"" 180 "$Mode-ui"
 }
 
 function Save-WebViewDiagnostics([Diagnostics.Process] $Process, [int] $Port, [string] $Mode) {
@@ -414,7 +420,7 @@ function Assert-UpstreamUntouched {
     }
 }
 
-foreach ($path in @($installRoot, $appData, $serviceRoot, $upstreamData, $upstreamServiceRoot) + $registryKeys + $files) {
+foreach ($path in @($installRoot, $legacyRoot, $appData, $serviceRoot, $upstreamData, $upstreamServiceRoot) + $registryKeys + $files) {
     if (Test-Path -LiteralPath $path) { throw "Expected a clean disposable runner, but found: $path" }
 }
 foreach ($name in @($serviceName, $upstreamServiceName)) {
@@ -508,7 +514,11 @@ try {
     Write-WebViewCoverage
     # /D and _?= are NSIS remainder arguments and must be last, without surrounding quotes.
     try {
-        Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 600
+        if ($PreviousInstallerPath) {
+            Invoke-BoundedProcess $PreviousInstallerPath "/S /D=$legacyRoot" 600
+        } else {
+            Invoke-BoundedProcess $InstallerPath '/S' 600
+        }
     } catch {
         if ($bootstrapExpected) {
             $webViewCoverage.status = 'failed'
@@ -535,23 +545,25 @@ try {
         $webViewCoverage.reason = 'NSIS restored a valid Runtime after the missing-runtime check; application startup is next.'
     }
     Write-WebViewCoverage
-    $appBinary = Join-Path $installRoot 'clash-verge-xboard.exe'
+    $binaryName = if ($PreviousInstallerPath) { 'clash-verge-xboard.exe' } else { 'IKUN.exe' }
+    $appBinary = Join-Path $activeInstallRoot $binaryName
     foreach ($file in @($appBinary, (Join-Path $serviceRoot 'cores\verge-mihomo.exe'), (Join-Path $serviceRoot 'cores\verge-mihomo-alpha.exe'))) {
         if (-not (Test-Path -LiteralPath $file)) { throw "Installed payload missing: $file" }
     }
     Assert-UpstreamUntouched
 
-    Invoke-BoundedProcess (Join-Path $installRoot 'resources\clash-verge-service-install.exe') ''
+    Invoke-BoundedProcess (Join-Path $activeInstallRoot 'resources\clash-verge-service-install.exe') ''
     $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if ($service.State -ne 'Running' -or $service.StartMode -ne 'Auto' -or -not $service.PathName.Contains('clash-verge-service-xboard')) {
         throw 'The bundled helper did not install the independent production service.'
     }
     $debugPort = Set-AppDebugPort
-    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -Environment @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort" } -PassThru
+    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $activeInstallRoot -Environment @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort" } -PassThru
     Wait-AppReady $appProcess
     Save-NativeWindowScreenshot $appProcess 'first-run'
     Save-WebViewDiagnostics $appProcess $debugPort 'first-run'
-    Assert-AppUI $appProcess $debugPort 'first-run'
+    $firstBrand = if ($PreviousInstallerPath) { 'Clash Verge Xboard' } else { 'IKUN' }
+    Assert-AppUI $appProcess $debugPort 'first-run' $firstBrand
     if ($bootstrapExpected) {
         $webViewCoverage.status = 'passed'
         $webViewCoverage.reason = 'Real Runtime removal/absence, NSIS bootstrap installation, and the installed application WebView2 startup were exercised.'
@@ -562,14 +574,69 @@ try {
     $dataSentinel = Join-Path $appData 'xboard-smoke-preserved.txt'
     if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1') { throw 'The real Skip action did not persist onboarding completion.' }
     Set-Content -LiteralPath $dataSentinel -Value $marker -NoNewline
+    $preservedFiles = @(@{ Path = $onboardingMarker; Content = '1' }, @{ Path = $dataSentinel; Content = $marker })
+    if ($PreviousInstallerPath) {
+        $protectedSentinel = Join-Path $appData 'ikun-upgrade-dpapi.bin'
+        $plain = [Text.Encoding]::UTF8.GetBytes($marker)
+        $protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+        [IO.File]::WriteAllBytes($protectedSentinel, $protected)
+        $protectedHash = (Get-FileHash -LiteralPath $protectedSentinel -Algorithm SHA256).Hash
+        $legacyRunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        New-ItemProperty -LiteralPath $legacyRunKey -Name 'Clash Verge Xboard' -Value "`"$appBinary`"" -Force | Out-Null
+        $legacyTask = 'Clash Verge Xboard'
+        if (Get-ScheduledTask -TaskName $legacyTask -TaskPath '\' -ErrorAction SilentlyContinue) { throw 'The legacy task fixture already exists.' }
+        $action = New-ScheduledTaskAction -Execute $appBinary
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+        Register-ScheduledTask -TaskName $legacyTask -TaskPath '\' -Action $action -Trigger $trigger -Principal $principal | Out-Null
+        $upgradeConfig = Join-Path $appData 'ikun-upgrade-config.yaml'
+        Set-Content -LiteralPath $upgradeConfig -Value "profile: $marker" -NoNewline
+        $preservedFiles += @{ Path = $upgradeConfig; Content = "profile: $marker" }
+        $configHashes = @(foreach ($name in @('verge.yaml', 'profiles.yaml')) {
+            $path = Join-Path $appData $name
+            if (Test-Path -LiteralPath $path) { @{ Path = $path; Hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } }
+        })
+    }
     $previousAppProcess = $appProcess
-    Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 180
+    $activeInstallRoot = $installRoot
+    # No /D override: the rebrand must discover the old installation and choose IKUN itself.
+    Invoke-BoundedProcess $InstallerPath '/S' 180
     $previousAppProcess.Refresh()
     if (-not $previousAppProcess.HasExited) { throw 'Reinstall did not close the running Xboard application.' }
-    foreach ($expected in @(@{ Path = $onboardingMarker; Content = '1' }, @{ Path = $dataSentinel; Content = $marker })) {
+    foreach ($expected in $preservedFiles) {
         if (-not (Test-Path -LiteralPath $expected.Path) -or (Get-Content -LiteralPath $expected.Path -Raw) -ne $expected.Content) {
             throw "Reinstall changed preserved application data: $($expected.Path)"
         }
+    }
+    $appBinary = Join-Path $installRoot 'IKUN.exe'
+    if (-not (Test-Path -LiteralPath $appBinary)) { throw 'The installer did not use the IKUN directory and executable.' }
+    $installedIdentity = Get-ItemProperty -LiteralPath 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Clash Verge Xboard'
+    if ($installedIdentity.DisplayName -ne 'IKUN' -or $installedIdentity.DisplayVersion -ne '2.5.11' -or $installedIdentity.MainBinaryName -ne 'IKUN.exe' -or $installedIdentity.InstallLocation.Trim('"') -ne $installRoot) {
+        throw 'The installed display name, version, executable or path was not updated to IKUN.'
+    }
+    if ((Get-Service -Name $serviceName).DisplayName -ne 'IKUN Service') { throw 'The service display name was not updated to IKUN.' }
+    if ($PreviousInstallerPath) {
+        if (Test-Path -LiteralPath (Join-Path $legacyRoot 'clash-verge-xboard.exe')) { throw 'The old application executable was left behind.' }
+        foreach ($config in $configHashes) {
+            if ((Get-FileHash -LiteralPath $config.Path -Algorithm SHA256).Hash -ne $config.Hash) { throw "The installer changed configuration: $($config.Path)" }
+        }
+        if ((Get-FileHash -LiteralPath $protectedSentinel -Algorithm SHA256).Hash -ne $protectedHash) { throw 'The upgrade changed the encrypted data sentinel.' }
+        $restored = [Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($protectedSentinel), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+        if ([Text.Encoding]::UTF8.GetString($restored) -ne $marker) { throw 'Protected data could not be decrypted after the upgrade.' }
+        $runValues = Get-Item -LiteralPath $legacyRunKey
+        if ($null -ne $runValues.GetValue('Clash Verge Xboard') -or $runValues.GetValue('IKUN') -ne "`"$appBinary`"") { throw 'The upgrade did not migrate the owned Run entry.' }
+        if (Get-ScheduledTask -TaskName $legacyTask -TaskPath '\' -ErrorAction SilentlyContinue) { throw 'The old scheduled task was left behind.' }
+        $upgradedTask = Get-ScheduledTask -TaskName 'IKUN' -TaskPath '\'
+        if ($upgradedTask.Actions[0].Execute -ne $appBinary) { throw 'The migrated scheduled task points to the wrong executable.' }
+        foreach ($directory in @([Environment]::GetFolderPath('CommonDesktopDirectory'), [Environment]::GetFolderPath('CommonPrograms'))) {
+            if (Test-Path -LiteralPath (Join-Path $directory 'Clash Verge Xboard.lnk')) { throw 'An old branded shortcut was left behind.' }
+            $shortcutPath = Join-Path $directory 'IKUN.lnk'
+            if (-not (Test-Path -LiteralPath $shortcutPath)) { throw 'An IKUN shortcut is missing after upgrade.' }
+            $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+            if ($shortcut.TargetPath -ne $appBinary) { throw 'An IKUN shortcut points to the old executable.' }
+        }
+        'The released 2.5.10 preview migrated to the IKUN directory/executable, preserving onboarding, configuration and decryptable DPAPI data, with owned shortcuts and startup entries updated.' |
+            Set-Content -LiteralPath (Join-Path $artifacts 'legacy-upgrade-result.txt')
     }
     if ((Get-Service -Name $serviceName).Status -ne 'Running') { throw 'Reinstall did not restart the Xboard service.' }
     Assert-UpstreamUntouched
@@ -583,14 +650,16 @@ try {
         throw 'Restart after reinstall changed the onboarding marker or application data.'
     }
     Assert-UpstreamUntouched
-    'Same-version reinstall preserved onboarding and application data, restarted successfully, and left upstream sentinels untouched.' |
+    $maintenance = if ($PreviousInstallerPath) { 'First-preview upgrade' } else { 'Same-version reinstall' }
+    "$maintenance preserved onboarding and application data, restarted successfully, and left upstream sentinels untouched." |
         Tee-Object -FilePath (Join-Path $artifacts 'reinstall-result.txt')
     Invoke-BoundedProcess (Join-Path $installRoot 'uninstall.exe') "/S _?=$installRoot"
     $installed = $false
     if (Test-Path -LiteralPath $appBinary) { throw 'Uninstaller left the application executable behind.' }
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Uninstaller left the Xboard service registered.' }
+    if (Get-ScheduledTask -TaskName 'IKUN' -TaskPath '\' -ErrorAction SilentlyContinue) { throw 'Uninstaller left the owned scheduled task behind.' }
     Assert-UpstreamUntouched
-    'Syntax, install, core staging, service isolation, application startup, same-version reinstall and uninstall smoke passed.' |
+    "Syntax, install, core staging, service isolation, application startup, $maintenance and uninstall smoke passed." |
         Tee-Object -FilePath (Join-Path $artifacts 'result.txt')
 } finally {
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousBrowserArguments
@@ -599,8 +668,8 @@ try {
         Copy-Item -LiteralPath $logDirectory -Destination (Join-Path $artifacts 'app-logs') -Recurse -Force -ErrorAction Continue
     }
     if ($appProcess -and -not $appProcess.HasExited) { $appProcess.Kill($true); [void]$appProcess.WaitForExit(10000) }
-    if ($installed -and (Test-Path (Join-Path $installRoot 'uninstall.exe'))) {
-        try { Invoke-BoundedProcess (Join-Path $installRoot 'uninstall.exe') "/S _?=$installRoot" }
+    if ($installed -and (Test-Path (Join-Path $activeInstallRoot 'uninstall.exe'))) {
+        try { Invoke-BoundedProcess (Join-Path $activeInstallRoot 'uninstall.exe') "/S _?=$activeInstallRoot" }
         catch { Write-Warning "Cleanup uninstall failed: $_" }
     }
     foreach ($process in $sentinelProcesses) {
@@ -610,7 +679,17 @@ try {
     foreach ($entry in $createdRunValues) { Remove-ItemProperty -LiteralPath $entry.Path -Name $entry.Name -ErrorAction SilentlyContinue }
     foreach ($key in $createdKeys) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue }
     foreach ($file in $createdFiles) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
-    foreach ($path in @($installRoot, $appData, $upstreamData, $upstreamServiceRoot, $sentinelRoot)) {
+    foreach ($taskName in @('Clash Verge Xboard', 'IKUN')) {
+        Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    foreach ($name in @('Clash Verge Xboard', 'IKUN')) {
+        Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $name -ErrorAction SilentlyContinue
+    }
+    foreach ($hive in @('HKCU:', 'HKLM:')) {
+        Remove-Item -LiteralPath "$hive\Software\jinshenganyuci\Clash Verge Xboard" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\Clash Verge Xboard" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($path in @($installRoot, $legacyRoot, $appData, $serviceRoot, $upstreamData, $upstreamServiceRoot, $sentinelRoot)) {
         Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

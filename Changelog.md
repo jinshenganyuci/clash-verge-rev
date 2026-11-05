@@ -1,3 +1,8 @@
+## IKUN 2.5.11 preview
+
+- Add guided first connection with subscription synchronization, available-route selection, and a choice of connection mode.
+- Rename the Windows application and installation folder to IKUN while preserving first-preview accounts and settings on upgrade.
+
 ## Xboard Windows preview
 
 - Add optional first-run sign-in and registration with automatic subscription synchronization.

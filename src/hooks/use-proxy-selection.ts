@@ -13,6 +13,7 @@ import {
 import { useVerge } from '@/hooks/use-verge'
 import { syncTrayProxySelection } from '@/services/cmds'
 import { mutate } from '@/services/mutate'
+import { interruptConnectionGuide } from '@/services/xboard'
 import { debugLog } from '@/utils/debug'
 
 // 缓存连接清理
@@ -78,6 +79,7 @@ export const useProxySelection = (options: ProxySelectionOptions = {}) => {
       }
 
       try {
+        await interruptConnectionGuide()
         const result = await mutate(
           () =>
             isFixedProxy

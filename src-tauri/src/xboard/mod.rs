@@ -1,4 +1,5 @@
 mod api;
+pub mod guide;
 mod managed;
 mod store;
 
@@ -97,6 +98,7 @@ struct Binding {
 #[derive(Serialize, specta::Type)]
 pub struct XboardSnapshot {
     pub onboarding_complete: bool,
+    pub guide_pending: bool,
     pub signed_in: bool,
     pub email: Option<String>,
     pub profile_uid: Option<String>,
@@ -177,6 +179,7 @@ impl State {
                     self.error = Some(error.to_string());
                 }
             }
+            guide::initialize(self.binding.is_some() || self.error.is_some()).await?;
             self.loaded = true;
             if self.binding.is_none()
                 && managed::exists().await
@@ -191,6 +194,7 @@ impl State {
     fn snapshot(&self) -> XboardSnapshot {
         XboardSnapshot {
             onboarding_complete: self.onboarding_complete,
+            guide_pending: guide::pending(),
             signed_in: self.binding.is_some(),
             email: self.binding.as_ref().map(|binding| binding.email.clone()),
             profile_uid: self.binding.as_ref().and_then(|binding| binding.profile_uid.clone()),
@@ -204,6 +208,7 @@ impl State {
     }
 
     async fn clear(&mut self) -> Result<()> {
+        guide::retire_session().await;
         self.binding = None;
         self.last_checked = None;
         let persisted = store::clear().await;
@@ -355,6 +360,7 @@ pub async fn snapshot() -> Result<XboardSnapshot> {
 }
 
 async fn sign_in(email: String, password: String, registration: Option<(String, String)>) -> Result<XboardSnapshot> {
+    guide::manual_override().await?;
     // One owner spans authentication, persistence and profile effects; logout cannot be undone by an older response.
     let mut state = STATE.lock().await;
     state.load().await?;
@@ -389,7 +395,9 @@ async fn sign_in(email: String, password: String, registration: Option<(String, 
     state.pending_secret_clear = false;
     store::complete_onboarding().await?;
     state.onboarding_complete = true;
-    if let Err(error) = state.sync(true, true).await {
+    if guide::begin_first_login().await? {
+        state.error = None;
+    } else if let Err(error) = state.sync(true, false).await {
         state.error = Some(error.to_string());
     }
     Ok(state.snapshot())
@@ -414,6 +422,9 @@ pub async fn register(input: XboardRegisterInput) -> Result<XboardSnapshot> {
 pub async fn refresh(force: bool) -> Result<XboardSnapshot> {
     let mut state = STATE.lock().await;
     state.load().await?;
+    if guide::pending() {
+        return Ok(state.snapshot());
+    }
     if let Err(error) = state.sync(force, false).await {
         state.error = Some(error.to_string());
         return Err(error);
@@ -422,6 +433,7 @@ pub async fn refresh(force: bool) -> Result<XboardSnapshot> {
 }
 
 pub async fn logout() -> Result<XboardSnapshot> {
+    let _ = guide::manual_override().await;
     let mut state = STATE.lock().await;
     state.load().await?;
     state.clear().await?;

@@ -94,7 +94,7 @@ mod app_init {
         #[cfg(target_os = "macos")]
         let mut auto_start_plugin_builder = tauri_plugin_autostart::Builder::new();
         #[cfg(not(target_os = "macos"))]
-        let auto_start_plugin_builder = tauri_plugin_autostart::Builder::new().app_name("Clash Verge Xboard");
+        let auto_start_plugin_builder = tauri_plugin_autostart::Builder::new().app_name("IKUN");
 
         #[cfg(target_os = "macos")]
         {
@@ -265,7 +265,7 @@ pub fn run() -> std::process::ExitCode {
 
             #[cfg(target_os = "macos")]
             if let Some(window) = _app_handle.get_webview_window("main") {
-                let _ = window.set_title("Clash Verge Xboard");
+                let _ = window.set_title("IKUN");
             }
         }
 

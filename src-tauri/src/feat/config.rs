@@ -5,9 +5,22 @@ use serde_yaml_ng::Mapping;
 use tokio::sync::MutexGuard;
 
 pub async fn patch_clash(patch: &Mapping) -> Result<()> {
+    if patch.contains_key("mode")
+        && let Err(error) = crate::xboard::guide::manual_override().await
+    {
+        clash_verge_logging::logging!(
+            warn,
+            clash_verge_logging::Type::Config,
+            "Could not persist the dismissed connection guide: {error}"
+        );
+    }
     let config_write = Config::try_lock_config_write()?;
+    apply_clash_patch_locked(&config_write, patch).await
+}
+
+pub(crate) async fn apply_clash_patch_locked(config_write: &MutexGuard<'_, ()>, patch: &Mapping) -> Result<()> {
     super::executor::apply(
-        &config_write,
+        config_write,
         super::executor::Patch::Clash(patch),
         super::effects::clash_effects(patch),
     )
@@ -18,6 +31,15 @@ pub async fn patch_clash(patch: &Mapping) -> Result<()> {
 ///
 /// TUN patches do not always produce a Run State transition, so reconciliation is explicit.
 pub async fn patch_verge(patch: &IVerge, not_save_file: bool) -> Result<()> {
+    if (patch.enable_tun_mode.is_some() || patch.enable_system_proxy.is_some())
+        && let Err(error) = crate::xboard::guide::manual_override().await
+    {
+        clash_verge_logging::logging!(
+            warn,
+            clash_verge_logging::Type::Config,
+            "Could not persist the dismissed connection guide: {error}"
+        );
+    }
     apply_verge_patch(patch, not_save_file).await?;
     if patch.enable_tun_mode.is_some() {
         super::reconcile_tun_availability().await;
@@ -33,7 +55,7 @@ pub(super) async fn apply_verge_patch(patch: &IVerge, not_save_file: bool) -> Re
 
 /// Apply a patch with the shared configuration write lock already held.
 /// Callers must pass the guard returned by [`Config::lock_config_write`].
-pub(super) async fn apply_verge_patch_locked(
+pub(crate) async fn apply_verge_patch_locked(
     _config_write: &MutexGuard<'_, ()>,
     patch: &IVerge,
     not_save_file: bool,

@@ -1,4 +1,4 @@
-name: Xboard Windows x64
+name: IKUN Windows x64
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: jinshenganyuci/clash-verge-service-ipc
-          ref: db6842cd2a219901b821ddb4d2d57cbe0dd09b02
+          ref: f1eec0aa31f3ba2ae1115b3febc2402034f08acd
           path: service
 
       - uses: actions/setup-node@v7
@@ -89,6 +89,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ikun-check-v1
           workspaces: |
             app -> target
             service -> target
@@ -124,21 +125,43 @@ jobs:
         continue-on-error: true
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
+      - name: Check the first-connection dialog in Edge
+        id: guide_ui
+        continue-on-error: true
+        run: node scripts/guide-smoke.mjs artifacts/guide-ui
+
+      - name: Upload connection guide UI evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ikun-guide-ui
+          path: app/artifacts/guide-ui
+          if-no-files-found: ignore
+
       - name: Xboard backend tests
         id: backend_tests
         continue-on-error: true
         run: cargo test -p clash-verge --lib xboard --locked --features clippy
 
       - name: Require all validation checks before packaging
-        if: steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success'
-        run: throw 'TypeScript, Clippy and backend tests must all pass before building an installer.'
+        if: steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success' || steps.guide_ui.outcome != 'success'
+        run: throw 'TypeScript, Clippy, backend tests and connection guide UI checks must all pass before building an installer.'
+
+      - name: Restore release build cache after validation
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ikun-release-v1
+          workspaces: |
+            app -> target
+            service -> target
+          cache-on-failure: true
 
       - name: Build the Windows x64 installer
         run: pnpm exec tauri build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
 
       - name: Verify payload architecture and calculate checksum
         run: |
-          $payloads = @('target/x86_64-pc-windows-msvc/release/clash-verge-xboard.exe')
+          $payloads = @('target/x86_64-pc-windows-msvc/release/IKUN.exe')
           $payloads += @(Get-ChildItem src-tauri/resources/*service*.exe | ForEach-Object { $_.FullName })
           $payloads += @(Get-ChildItem src-tauri/sidecar/*x86_64-pc-windows-msvc.exe | ForEach-Object { $_.FullName })
           foreach ($path in $payloads) {
@@ -155,6 +178,16 @@ jobs:
           "Commit: ${{ github.sha }}" | Set-Content "$($installer.DirectoryName)/build-info.txt"
           "SHA256: $hash" | Add-Content "$($installer.DirectoryName)/build-info.txt"
 
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: IKUN-windows-x64
+          path: |
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/build-info.txt
+          if-no-files-found: error
+
       - name: Smoke test isolated Windows installation
         timeout-minutes: 20
         run: |
@@ -166,19 +199,36 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: xboard-install-smoke
-          path: ${{ runner.temp }}/xboard-smoke-artifacts
+          name: ikun-install-smoke
+          path: ${{ runner.temp }}/ikun-smoke-artifacts
           if-no-files-found: ignore
 
-      - name: Upload Windows installer
+      - name: Download the released first preview for migration coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download xboard-preview-2.5.10.1 --repo ${{ github.repository }} --pattern '*_x64-setup.exe' --dir previous-installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $previous = @(Get-ChildItem previous-installer/*_x64-setup.exe)
+          if ($previous.Count -ne 1) { throw 'Expected the first preview installer' }
+          $hash = (Get-FileHash -LiteralPath $previous[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'f5969790031dfc25336fdbf7972cb2003cb309fdb603b56a1ebe999270e83eb5') { throw 'The first preview installer checksum changed' }
+
+      - name: Upgrade the first preview into the IKUN installation directory
+        timeout-minutes: 20
+        run: |
+          $installer = @(Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          $previous = @(Get-ChildItem previous-installer/*_x64-setup.exe)
+          if ($installer.Count -ne 1 -or $previous.Count -ne 1) { throw 'Expected one current and one previous installer' }
+          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName -PreviousInstallerPath $previous[0].FullName
+
+      - name: Upload first-preview upgrade smoke logs
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Clash-Verge-Xboard-windows-x64
-          path: |
-            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
-            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/build-info.txt
-          if-no-files-found: error
+          name: ikun-upgrade-smoke
+          path: ${{ runner.temp }}/ikun-upgrade-smoke-artifacts
+          if-no-files-found: ignore
 
       - name: Save generated source changes
         if: always()
@@ -189,7 +239,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: xboard-generated-sources
+          name: ikun-generated-sources
           path: app/ci-generated.patch
           if-no-files-found: ignore
 
@@ -213,7 +263,7 @@ jobs:
       - name: Download the existing Windows x64 installer
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: Clash-Verge-Xboard-windows-x64
+          name: IKUN-windows-x64
           run-id: ${{ inputs.installer_run }}
           github-token: ${{ github.token }}
           path: downloaded-installer
@@ -229,6 +279,34 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: xboard-installed-ui-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/xboard-smoke-artifacts
+          name: ikun-installed-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ikun-smoke-artifacts
           if-no-files-found: ignore
+
+      - name: Download the released first preview for migration coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download xboard-preview-2.5.10.1 --repo ${{ github.repository }} --pattern '*_x64-setup.exe' --dir previous-installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $previous = @(Get-ChildItem previous-installer/*_x64-setup.exe)
+          if ($previous.Count -ne 1) { throw 'Expected the first preview installer' }
+          $hash = (Get-FileHash -LiteralPath $previous[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'f5969790031dfc25336fdbf7972cb2003cb309fdb603b56a1ebe999270e83eb5') { throw 'The first preview installer checksum changed' }
+
+      - name: Upgrade the first preview into the IKUN installation directory
+        timeout-minutes: 20
+        run: |
+          $installer = @(Get-ChildItem ../downloaded-installer/*-setup.exe)
+          $previous = @(Get-ChildItem previous-installer/*_x64-setup.exe)
+          if ($installer.Count -ne 1 -or $previous.Count -ne 1) { throw 'Expected one current and one previous installer' }
+          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName -PreviousInstallerPath $previous[0].FullName
+
+      - name: Upload first-preview upgrade smoke logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ikun-upgrade-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ikun-upgrade-smoke-artifacts
+          if-no-files-found: ignore
+

@@ -57,6 +57,20 @@ pub async fn complete_onboarding() -> Result<()> {
         .map_err(|_| Error::storage())
 }
 
+pub async fn guide_state() -> Result<Option<String>> {
+    match fs::read_to_string(path("xboard-connection-guide")?).await {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(Error::storage()),
+    }
+}
+
+pub async fn save_guide_state(value: &str) -> Result<()> {
+    fs::write(path("xboard-connection-guide")?, value)
+        .await
+        .map_err(|_| Error::storage())
+}
+
 #[cfg(windows)]
 fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>> {
     use windows_sys::Win32::{

@@ -6,7 +6,9 @@ import { useQuery } from '@/services/query-client'
 import {
   accountKey,
   accountRequest,
+  connectionGuideKey,
   readAccount,
+  readConnectionGuide,
   readRegistrationPolicy,
   type AccountOperation,
   type AccountParams,
@@ -27,6 +29,16 @@ export const useRegistrationPolicy = (enabled: boolean) =>
     queryFn: readRegistrationPolicy,
     enabled,
     retry: false,
+  })
+
+export const useConnectionGuide = () =>
+  useQuery({
+    queryKey: connectionGuideKey,
+    queryFn: readConnectionGuide,
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 500,
   })
 
 export function useAccountQuery<T>(
@@ -68,7 +80,7 @@ export function useAccountTask() {
       mountedRef.current = false
     }
   }, [])
-  const run = async (action: () => Promise<unknown>, success?: string) => {
+  const run = useCallback(async (action: () => Promise<unknown>, success?: string) => {
     if (activeRef.current) return false
     activeRef.current = true
     setBusy(true)
@@ -95,6 +107,6 @@ export function useAccountTask() {
       activeRef.current = false
       if (mountedRef.current) setBusy(false)
     }
-  }
+  }, [text])
   return { busy, message, run }
 }

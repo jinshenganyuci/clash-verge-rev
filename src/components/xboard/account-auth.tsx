@@ -166,10 +166,7 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
         <AccountCircleOutlined sx={{ fontSize: 54, color: 'primary.main' }} />
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           {welcome
-            ? text(
-                '欢迎使用 Clash Verge Xboard',
-                'Welcome to Clash Verge Xboard',
-              )
+            ? text('欢迎使用 IKUN', 'Welcome to IKUN')
             : text('登录账户', 'Sign in')}
         </Typography>
         <Typography color="text.secondary" sx={{ textAlign: 'center' }}>

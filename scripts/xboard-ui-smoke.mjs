@@ -112,8 +112,8 @@ function inspectApp(action) {
         ),
     )
   const welcome = named('h4', [
-    '欢迎使用 Clash Verge Xboard',
-    'Welcome to Clash Verge Xboard',
+    '欢迎使用 IKUN',
+    'Welcome to IKUN',
   ])
   const skip = named('button', [
     '暂时跳过，进入客户端',

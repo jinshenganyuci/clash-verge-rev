@@ -18,7 +18,7 @@ try {
             }
         }
     }
-    Stop-OwnedProcesses @('clash-verge-xboard.exe')
+    Stop-OwnedProcesses @('IKUN.exe', 'clash-verge-xboard.exe')
     $service = Get-Service -Name 'clash_verge_service_xboard' -ErrorAction SilentlyContinue
     if ($service -and $service.Status -ne 'Stopped') {
         Stop-Service -InputObject $service -Force

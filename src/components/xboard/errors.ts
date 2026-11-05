@@ -1,4 +1,12 @@
 const chineseErrors: Record<string, string> = {
+  'The connection setup changed. Retry the connection check.':
+    '连接设置已变化，请重新检测线路。',
+  'No usable proxy route was found. Retry the connection check.':
+    '暂未找到可用线路，请检查网络后重新检测。',
+  'TUN could not be enabled. Retry or choose system proxy.':
+    '未能开启虚拟网卡模式，请重试或改用系统代理。',
+  'The system proxy could not be enabled. Retry the connection.':
+    '未能开启系统代理，请重试连接。',
   'The account service could not be reached. Please try again.':
     '暂时无法连接账号服务，请检查网络后重试。',
   'The encrypted account data could not be read or saved on this Windows account.':

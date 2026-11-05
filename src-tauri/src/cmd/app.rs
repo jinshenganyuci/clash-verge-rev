@@ -65,7 +65,7 @@ pub fn install_update(
     let _ = (app_handle, version, on_event);
     Err(super::coded_error(
         "APP_UPDATE_DISABLED",
-        "Download Clash Verge Xboard updates from the project releases page",
+        "Download IKUN updates from the project releases page",
     ))
 }
 

@@ -36,6 +36,15 @@ export const xboardCompleteOnboarding = () =>
 export const xboardCopySubscription = () => commands.xboardCopySubscription()
 export const xboardCopyTelegramBinding = () =>
   commands.xboardCopyTelegramBinding()
+export const xboardGuideSnapshot = () => commands.xboardGuideSnapshot()
+export const xboardGuidePrepare = () => commands.xboardGuidePrepare()
+export const xboardGuideCancel = () => commands.xboardGuideCancel()
+export const xboardGuideConnect = (
+  attemptId: number,
+  mode: Parameters<typeof commands.xboardGuideConnect>[1],
+) => commands.xboardGuideConnect(attemptId, mode)
+export const xboardGuideComplete = (attemptId: number) =>
+  commands.xboardGuideComplete(attemptId)
 
 export type {
   RunningMode,

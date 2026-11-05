@@ -11,6 +11,11 @@ import {
   xboardCompleteOnboarding,
   xboardCopySubscription,
   xboardCopyTelegramBinding,
+  xboardGuideSnapshot,
+  xboardGuidePrepare,
+  xboardGuideCancel,
+  xboardGuideConnect,
+  xboardGuideComplete,
 } from '@/services/cmds'
 import { mutate } from '@/services/mutate'
 import { revalidateQuery, setCacheData } from '@/services/query-client'
@@ -18,6 +23,8 @@ import { openExternalUrl } from '@/utils/open-external-url'
 
 export type AccountSnapshot = Awaited<ReturnType<typeof xboardSnapshot>>
 export type AccountOperation = Parameters<typeof xboardRequest>[0]
+export type ConnectionGuide = Awaited<ReturnType<typeof xboardGuideSnapshot>>
+export type ConnectionMode = Parameters<typeof xboardGuideConnect>[1]
 
 export type AccountParams = Record<string, string | number>
 export type AccountEnvelope<T> = Omit<
@@ -25,8 +32,79 @@ export type AccountEnvelope<T> = Omit<
   'data'
 > & { data: T }
 export const accountKey = ['xboardSnapshot'] as const
+export const connectionGuideKey = ['xboardGuideSnapshot'] as const
 export const readRegistrationPolicy = () => xboardRegistrationPolicy()
 let snapshotVersion = 0
+let guideVersion = 0
+
+export async function readConnectionGuide(): Promise<ConnectionGuide> {
+  const version = guideVersion
+  const snapshot = await xboardGuideSnapshot()
+  if (version !== guideVersion) return readConnectionGuide()
+  if (snapshot.phase === 'cancelled') {
+    snapshotVersion += 1
+    const account = await readAccount()
+    await setCacheData(accountKey, account)
+  }
+  return snapshot
+}
+
+async function guideMutation(
+  action: () => Promise<ConnectionGuide>,
+  cancel = false,
+  reconcileAccount = true,
+) {
+  let version = ++guideVersion
+  try {
+    const result = await mutate(action, {
+      // Cancellation must reach the backend without waiting for preparation.
+      id: cancel ? 'xboard-guide-cancel' : 'xboard-guide',
+      errorNotice: false,
+      onFulfilled: (snapshot) => {
+        if (version === guideVersion) {
+          version = ++guideVersion
+          void setCacheData(connectionGuideKey, snapshot)
+        }
+      },
+    })
+    if (version !== guideVersion)
+      return reconcileAccount ? readConnectionGuide() : result.value
+    if ((result.value.phase === 'cancelled' || cancel) && reconcileAccount) {
+      snapshotVersion += 1
+      const snapshot = await readAccount()
+      await setCacheData(accountKey, snapshot)
+    }
+    return result.value
+  } catch (error) {
+    if (version === guideVersion) guideVersion += 1
+    const reconciliation = revalidateQuery(connectionGuideKey)
+    if (reconcileAccount) await Promise.allSettled([reconciliation])
+    else void reconciliation.catch(() => {})
+    throw error
+  }
+}
+
+export const prepareConnectionGuide = () => guideMutation(xboardGuidePrepare)
+export const cancelConnectionGuide = () =>
+  guideMutation(xboardGuideCancel, true)
+export async function interruptConnectionGuide() {
+  try {
+    await guideMutation(xboardGuideCancel, true, false)
+  } catch (error) {
+    // The backend settles cancellation before attempting to persist its marker.
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'XBOARD_STORAGE_FAILED')
+      throw error
+  }
+}
+export const connectAccount = (attemptId: number, mode: ConnectionMode) =>
+  guideMutation(() => xboardGuideConnect(attemptId, mode))
+export async function completeConnectionGuide(attemptId: number) {
+  const result = await guideMutation(() => xboardGuideComplete(attemptId))
+  snapshotVersion += 1
+  const snapshot = await readAccount()
+  await setCacheData(accountKey, snapshot)
+  return result
+}
 
 export async function readAccount(): Promise<AccountSnapshot> {
   const version = snapshotVersion

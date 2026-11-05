@@ -421,7 +421,7 @@ pub(super) async fn init_dns_config() -> Result<()> {
 
     if !dns_path.exists() {
         logging!(info, Type::Setup, "Creating default DNS config file");
-        help::save_yaml(&dns_path, &default_dns_config, Some("# Clash Verge DNS Config")).await?;
+        help::save_yaml(&dns_path, &default_dns_config, Some("# IKUN DNS Config")).await?;
     }
 
     Ok(())
@@ -452,7 +452,7 @@ async fn initialize_config_files() -> Result<()> {
         && !path.exists()
     {
         let template = IClashTemp::template().0;
-        help::save_yaml(&path, &template, Some("# Clash Verge"))
+        help::save_yaml(&path, &template, Some("# IKUN"))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create clash config: {}", e))?;
         logging!(info, Type::Setup, "Created clash config at {:?}", path);
@@ -462,7 +462,7 @@ async fn initialize_config_files() -> Result<()> {
         && !path.exists()
     {
         let template = IVerge::template();
-        help::save_yaml(&path, &template, Some("# Clash Verge"))
+        help::save_yaml(&path, &template, Some("# IKUN"))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create verge config: {}", e))?;
         logging!(info, Type::Setup, "Created verge config at {:?}", path);
@@ -472,7 +472,7 @@ async fn initialize_config_files() -> Result<()> {
         && !path.exists()
     {
         let template = IProfiles::default();
-        help::save_yaml(&path, &template, Some("# Clash Verge"))
+        help::save_yaml(&path, &template, Some("# IKUN"))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create profiles config: {}", e))?;
         logging!(info, Type::Setup, "Created profiles config at {:?}", path);
@@ -557,8 +557,8 @@ pub fn init_scheme() -> Result<()> {
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (scheme, _) = hkcu.create_subkey("Software\\Classes\\clash-verge-xboard")?;
-    scheme.set_value("", &"Clash Verge Xboard")?;
-    scheme.set_value("URL Protocol", &"Clash Verge Xboard URL Scheme Protocol")?;
+    scheme.set_value("", &"IKUN")?;
+    scheme.set_value("URL Protocol", &"IKUN URL Scheme Protocol")?;
     let (default_icon, _) = scheme.create_subkey("DefaultIcon")?;
     default_icon.set_value("", &format!("\"{app_exe}\",0"))?;
     let (command, _) = scheme.create_subkey("Shell\\Open\\Command")?;
