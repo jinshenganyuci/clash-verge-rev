@@ -293,6 +293,65 @@ function Save-ProcessTimeoutDiagnostics([Diagnostics.Process] $Process, [string]
             }
         } catch { Write-Warning "Owned timeout window screenshot failed: $_" }
     }
+    $migrationFailure = @($windows | Where-Object {
+        ($_.ChildText -join ' ') -like '*Could not update IKUN shortcuts or startup settings*'
+    }).Count -gt 0
+    if ($PreviousInstallerPath -and $Path.Equals($InstallerPath, [StringComparison]::OrdinalIgnoreCase) -and $migrationFailure) {
+        Save-MigrationReplayDiagnostics $directory
+    }
+}
+
+function Save-MigrationReplayDiagnostics([string] $Directory) {
+    $identityPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Clash Verge Xboard'
+    $identity = Get-ItemProperty -LiteralPath $identityPath
+    if ($identity.InstallLocation.Trim('"') -ne $installRoot -or $identity.MainBinaryName -ne 'IKUN.exe' -or -not (Test-Path -LiteralPath (Join-Path $installRoot 'IKUN.exe'))) {
+        throw 'Migration replay requires the partially installed IKUN payload at the expected disposable-runner path.'
+    }
+    $helper = Join-Path $PSScriptRoot 'migrate-ikun-install.ps1'
+    $wrapper = Join-Path $Directory 'replay-migration.ps1'
+    @'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+Write-Output ("PowerShell: {0}; Is64BitProcess: {1}" -f $PSVersionTable.PSVersion, [Environment]::Is64BitProcess)
+& $env:IKUN_REPLAY_SCRIPT
+exit $LASTEXITCODE
+'@ | Set-Content -LiteralPath $wrapper -Encoding utf8BOM
+    $replays = @(
+        @{ Architecture = 'x64'; Executable = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') },
+        @{ Architecture = 'x86'; Executable = (Join-Path $env:SystemRoot 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe') }
+    )
+    $results = @(foreach ($replay in $replays) {
+        $prefix = Join-Path $Directory "migration-replay-$($replay.Architecture)"
+        $options = @{
+            FilePath = $replay.Executable
+            ArgumentList = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`""
+            NoNewWindow = $true
+            PassThru = $true
+            RedirectStandardOutput = "$prefix.stdout.log"
+            RedirectStandardError = "$prefix.stderr.log"
+            Environment = @{
+                IKUN_INSTALL_DIRECTORY = $installRoot
+                IKUN_PREVIOUS_INSTALL_DIRECTORY = $legacyRoot
+                IKUN_REPLAY_SCRIPT = $helper
+            }
+        }
+        $replayProcess = Start-Process @options
+        $completed = $replayProcess.WaitForExit(60000)
+        if ($completed) {
+            $replayProcess.WaitForExit()
+        } else {
+            $replayProcess.Kill($true)
+            [void]$replayProcess.WaitForExit(10000)
+        }
+        foreach ($log in @($options.RedirectStandardOutput, $options.RedirectStandardError)) {
+            if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log | ForEach-Object { Write-Host $_ } }
+        }
+        [PSCustomObject]@{
+            Architecture = $replay.Architecture
+            Completed = $completed
+            ExitCode = if ($completed) { $replayProcess.ExitCode } else { $null }
+        }
+    })
+    $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory 'migration-replay-results.json')
 }
 
 function Set-AppDebugPort {
