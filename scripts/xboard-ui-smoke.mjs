@@ -161,20 +161,69 @@ function inspectApp(action) {
 let cdp
 let screenshot
 let lastState
+const discovery = {
+  endpoint: `http://127.0.0.1:${port}/json/list`,
+  attempts: 0,
+  response: null,
+  targets: [],
+  error: null,
+}
+function diagnosticUrl(value) {
+  try {
+    const url = new URL(value)
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.href.slice(0, 512)
+  } catch {
+    return '[invalid URL]'
+  }
+}
 try {
   const target = await waitFor('the Tauri application CDP page', async () => {
+    discovery.attempts++
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
+      const response = await fetch(discovery.endpoint, {
         signal: AbortSignal.timeout(2000),
       })
+      discovery.response = {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+      }
       const targets = await response.json()
-      return targets.find(
-        (page) =>
-          page.type === 'page' &&
-          new URL(page.url).hostname === 'tauri.localhost' &&
-          page.webSocketDebuggerUrl,
-      )
-    } catch {
+      if (!Array.isArray(targets)) {
+        throw new Error('CDP discovery returned a non-array JSON value.')
+      }
+      discovery.targets = targets.map((page) => ({
+        type: page.type,
+        url: diagnosticUrl(page.url),
+        debuggerUrl: page.webSocketDebuggerUrl
+          ? diagnosticUrl(page.webSocketDebuggerUrl)
+          : null,
+      }))
+      discovery.error = null
+      return targets.find((page) => {
+        try {
+          return (
+            page.type === 'page' &&
+            new URL(page.url).hostname === 'tauri.localhost' &&
+            page.webSocketDebuggerUrl
+          )
+        } catch {
+          return false
+        }
+      })
+    } catch (error) {
+      discovery.error = {
+        name: error.name,
+        message: error.message,
+        cause: error.cause && {
+          code: error.cause.code,
+          address: error.cause.address,
+          port: error.cause.port,
+        },
+      }
       return false
     }
   })
@@ -206,7 +255,9 @@ try {
     const width = png.readUInt32BE(16)
     const height = png.readUInt32BE(20)
     if (width < 640 || height < 400) {
-      throw new Error(`Application screenshot is too small: ${width}x${height}.`)
+      throw new Error(
+        `Application screenshot is too small: ${width}x${height}.`,
+      )
     }
     await writeFile(join(values.artifacts, name), png)
     return { width, height }
@@ -219,7 +270,11 @@ try {
       return false
     }
   }
-  const evidence = { mode: values.mode, page: target.url }
+  const evidence = {
+    mode: values.mode,
+    page: diagnosticUrl(target.url),
+    discovery,
+  }
   if (values.mode === 'first-run') {
     if (await completed()) {
       throw new Error('Onboarding was already completed before the UI test.')
@@ -261,9 +316,11 @@ try {
   )
   console.log(`${values.mode}: real UI and persisted onboarding passed.`)
 } catch (error) {
+  const failure = { error: error.message, lastState, discovery }
+  console.error(JSON.stringify(failure, null, 2))
   await writeFile(
     join(values.artifacts, `${values.mode}-ui-failure.json`),
-    `${JSON.stringify({ error: error.message, lastState }, null, 2)}\n`,
+    `${JSON.stringify(failure, null, 2)}\n`,
   )
   if (screenshot) {
     try {

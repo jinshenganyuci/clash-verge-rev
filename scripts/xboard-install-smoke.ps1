@@ -94,15 +94,29 @@ function Write-WebViewCoverage {
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $message }
 }
 
-function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $TimeoutSeconds = 120) {
+function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $TimeoutSeconds = 120, [string] $LogPrefix = '') {
     $options = @{ FilePath = $Path; PassThru = $true }
     if ($Arguments) { $options.ArgumentList = $Arguments }
-    $process = Start-Process @options
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        $process.Kill($true)
-        throw "Process timed out after ${TimeoutSeconds}s: $Path"
+    if ($LogPrefix) {
+        $options.NoNewWindow = $true
+        $options.RedirectStandardOutput = Join-Path $artifacts "$LogPrefix.stdout.log"
+        $options.RedirectStandardError = Join-Path $artifacts "$LogPrefix.stderr.log"
     }
-    if ($process.ExitCode -ne 0) { throw "Process failed ($($process.ExitCode)): $Path" }
+    try {
+        $process = Start-Process @options
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $process.Kill($true)
+            throw "Process timed out after ${TimeoutSeconds}s: $Path"
+        }
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw "Process failed ($($process.ExitCode)): $Path" }
+    } finally {
+        if ($LogPrefix) {
+            foreach ($log in @($options.RedirectStandardOutput, $options.RedirectStandardError)) {
+                if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log | ForEach-Object { Write-Host $_ } }
+            }
+        }
+    }
 }
 
 Add-Type -TypeDefinition @'
@@ -120,6 +134,8 @@ public static class XboardSmokeWindow {
     private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr window);
     public static IntPtr FindApplicationWindow(uint processId) {
         IntPtr found = IntPtr.Zero;
         long largestArea = 0;
@@ -173,7 +189,47 @@ function Wait-AppReady([Diagnostics.Process] $Process) {
 function Assert-AppUI([int] $Port, [string] $Mode) {
     $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
     $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
-    Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180
+    Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180 "$Mode-ui"
+}
+
+function Save-WebViewDiagnostics([Diagnostics.Process] $Process, [int] $Port, [string] $Mode) {
+    $children = @(Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object ParentProcessId -eq $Process.Id)
+    $records = @($children | ForEach-Object {
+        [PSCustomObject]@{
+            ProcessId = $_.ProcessId
+            ParentProcessId = $_.ParentProcessId
+            HasExpectedDebugPort = [bool]($_.CommandLine -match "--remote-debugging-port=$Port(?!\d)")
+        }
+    })
+    @{ RequestedPort = $Port; DirectWebViewProcesses = $records } |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $artifacts "$Mode-webview-processes.json")
+}
+
+function Save-NativeWindowScreenshot([Diagnostics.Process] $Process, [string] $Mode) {
+    try {
+        Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+        $window = [XboardSmokeWindow]::FindApplicationWindow([uint32]$Process.Id)
+        if ($window -eq [IntPtr]::Zero) { throw 'The visible application window disappeared.' }
+        [void][XboardSmokeWindow]::SetForegroundWindow($window)
+        Start-Sleep -Seconds 2
+        $rectangle = [XboardSmokeWindow+Rect]::new()
+        if (-not [XboardSmokeWindow]::GetWindowRect($window, [ref]$rectangle)) { throw 'Cannot read the application window rectangle.' }
+        $windowBounds = [Drawing.Rectangle]::FromLTRB($rectangle.Left, $rectangle.Top, $rectangle.Right, $rectangle.Bottom)
+        $bounds = [Drawing.Rectangle]::Intersect($windowBounds, [Windows.Forms.SystemInformation]::VirtualScreen)
+        if ($bounds.Width -lt 640 -or $bounds.Height -lt 400) { throw 'The visible desktop does not contain a 640x400 application rectangle.' }
+        $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $artifacts "native-$Mode.png"), [Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
+        }
+    } catch {
+        $_.Exception.Message | Set-Content -LiteralPath (Join-Path $artifacts "native-$Mode-error.txt")
+        Write-Warning "Native window diagnostic screenshot unavailable: $_"
+    }
 }
 
 function Assert-UpstreamUntouched {
@@ -335,8 +391,10 @@ try {
         throw 'The bundled helper did not install the independent production service.'
     }
     $debugPort = Set-AppDebugPort
-    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
+    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -Environment @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort" } -PassThru
     Wait-AppReady $appProcess
+    Save-NativeWindowScreenshot $appProcess 'first-run'
+    Save-WebViewDiagnostics $appProcess $debugPort 'first-run'
     Assert-AppUI $debugPort 'first-run'
     if ($bootstrapExpected) {
         $webViewCoverage.status = 'passed'
@@ -360,8 +418,10 @@ try {
     if ((Get-Service -Name $serviceName).Status -ne 'Running') { throw 'Reinstall did not restart the Xboard service.' }
     Assert-UpstreamUntouched
     $debugPort = Set-AppDebugPort
-    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
+    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -Environment @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort" } -PassThru
     Wait-AppReady $appProcess
+    Save-NativeWindowScreenshot $appProcess 'reinstall'
+    Save-WebViewDiagnostics $appProcess $debugPort 'reinstall'
     Assert-AppUI $debugPort 'reinstall'
     if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1' -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne $marker) {
         throw 'Restart after reinstall changed the onboarding marker or application data.'
