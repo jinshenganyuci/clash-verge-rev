@@ -92,7 +92,12 @@ export async function interruptConnectionGuide() {
     await guideMutation(xboardGuideCancel, true, false)
   } catch (error) {
     // The backend settles cancellation before attempting to persist its marker.
-    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'XBOARD_STORAGE_FAILED')
+    if (
+      !error ||
+      typeof error !== 'object' ||
+      !('code' in error) ||
+      error.code !== 'XBOARD_STORAGE_FAILED'
+    )
       throw error
   }
 }

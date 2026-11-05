@@ -1,7 +1,15 @@
 import { setCacheData } from '@/services/query-client'
 
 export type ConnectionMode = 'tun' | 'system'
-type Phase = 'idle' | 'syncing' | 'testing' | 'ready' | 'connecting' | 'succeeded' | 'failed' | 'cancelled'
+type Phase =
+  | 'idle'
+  | 'syncing'
+  | 'testing'
+  | 'ready'
+  | 'connecting'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
 export type ConnectionGuide = {
   attempt_id: number
   phase: Phase
@@ -20,7 +28,11 @@ export const accountKey = ['xboardSnapshot'] as const
 export const connectionGuideKey = ['xboardGuideSnapshot'] as const
 
 const scenario = new URLSearchParams(location.search).get('scenario')
-const calls: Array<{ command: string; attemptId?: number; mode?: ConnectionMode }> = []
+const calls: Array<{
+  command: string
+  attemptId?: number
+  mode?: ConnectionMode
+}> = []
 let reads = 0
 let account = {
   onboarding_complete: true,
@@ -68,13 +80,27 @@ export async function cancelConnectionGuide() {
 }
 export async function connectAccount(attemptId: number, mode: ConnectionMode) {
   calls.push({ command: 'connect', attemptId, mode })
-  if (guide.phase !== 'ready' && guide.phase !== 'failed') throw new Error('Unexpected connection command')
-  guide = { ...guide, phase: 'connecting', mode, error: null, error_stage: null }
+  if (guide.phase !== 'ready' && guide.phase !== 'failed')
+    throw new Error('Unexpected connection command')
+  guide = {
+    ...guide,
+    phase: 'connecting',
+    mode,
+    error: null,
+    error_stage: null,
+  }
   await publishGuide()
   window.setTimeout(() => {
-    const firstFailure = scenario === 'failure' && calls.filter((call) => call.command === 'connect').length === 1
+    const firstFailure =
+      scenario === 'failure' &&
+      calls.filter((call) => call.command === 'connect').length === 1
     guide = firstFailure
-      ? { ...guide, phase: 'failed', error_stage: 'connect', error: 'TUN could not be enabled. Retry or choose system proxy.' }
+      ? {
+          ...guide,
+          phase: 'failed',
+          error_stage: 'connect',
+          error: 'TUN could not be enabled. Retry or choose system proxy.',
+        }
       : { ...guide, phase: 'succeeded' }
   }, 100)
   return { ...guide }
@@ -87,7 +113,9 @@ export async function completeConnectionGuide(attemptId: number) {
   return { ...guide }
 }
 
-const outsideScope = async (): Promise<never> => { throw new Error('Authentication is outside this fixture') }
+const outsideScope = async (): Promise<never> => {
+  throw new Error('Authentication is outside this fixture')
+}
 export const accountWrite = outsideScope
 export const accountRequest = outsideScope
 export const completeOnboarding = outsideScope
@@ -100,8 +128,17 @@ export const readRegistrationPolicy = outsideScope
 Object.assign(window, {
   __guideFixture: {
     ready() {
-      guide = { ...guide, phase: 'ready', tested: 3, group_name: '自动选择', node_name: '可用线路 A', latency_ms: 42 }
+      guide = {
+        ...guide,
+        phase: 'ready',
+        tested: 3,
+        group_name: '自动选择',
+        node_name: '可用线路 A',
+        latency_ms: 42,
+      }
     },
-    state() { return { calls, reads, guide, pending: account.guide_pending } },
+    state() {
+      return { calls, reads, guide, pending: account.guide_pending }
+    },
   },
 })

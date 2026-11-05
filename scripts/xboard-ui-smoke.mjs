@@ -111,10 +111,7 @@ function inspectApp(action) {
           (name) => normalize(element.textContent ?? '') === normalize(name),
         ),
     )
-  const welcome = named('h4', [
-    '欢迎使用 IKUN',
-    'Welcome to IKUN',
-  ])
+  const welcome = named('h4', ['欢迎使用 IKUN', 'Welcome to IKUN'])
   const skip = named('button', [
     '暂时跳过，进入客户端',
     'Skip for now and open the client',

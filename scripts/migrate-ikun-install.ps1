@@ -17,6 +17,13 @@ try {
         [Environment]::GetFolderPath('Startup'),
         [Environment]::GetFolderPath('CommonStartup')
     ) | Select-Object -Unique
+    if ($Uninstall) {
+        # NSIS still needs desktop/start-menu links to remove their taskbar pins.
+        $shortcutRoots = @(
+            [Environment]::GetFolderPath('Startup'),
+            [Environment]::GetFolderPath('CommonStartup')
+        )
+    }
     foreach ($root in $shortcutRoots) {
         if (-not (Test-Path -LiteralPath $root)) { continue }
         foreach ($name in $oldNames) {

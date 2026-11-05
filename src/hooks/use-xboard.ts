@@ -80,33 +80,36 @@ export function useAccountTask() {
       mountedRef.current = false
     }
   }, [])
-  const run = useCallback(async (action: () => Promise<unknown>, success?: string) => {
-    if (activeRef.current) return false
-    activeRef.current = true
-    setBusy(true)
-    setMessage(null)
-    try {
-      await action()
-      if (mountedRef.current && success)
-        setMessage({ severity: 'success', text: success })
-      return true
-    } catch (error) {
-      const detail = accountError(error, text('zh', 'en') === 'zh')
-      if (mountedRef.current)
-        setMessage({
-          severity: 'error',
-          text:
-            detail ||
-            text(
-              '请求未完成，请检查网络后重试。',
-              'The request failed. Check your connection and try again.',
-            ),
-        })
-      return false
-    } finally {
-      activeRef.current = false
-      if (mountedRef.current) setBusy(false)
-    }
-  }, [text])
+  const run = useCallback(
+    async (action: () => Promise<unknown>, success?: string) => {
+      if (activeRef.current) return false
+      activeRef.current = true
+      setBusy(true)
+      setMessage(null)
+      try {
+        await action()
+        if (mountedRef.current && success)
+          setMessage({ severity: 'success', text: success })
+        return true
+      } catch (error) {
+        const detail = accountError(error, text('zh', 'en') === 'zh')
+        if (mountedRef.current)
+          setMessage({
+            severity: 'error',
+            text:
+              detail ||
+              text(
+                '请求未完成，请检查网络后重试。',
+                'The request failed. Check your connection and try again.',
+              ),
+          })
+        return false
+      } finally {
+        activeRef.current = false
+        if (mountedRef.current) setBusy(false)
+      }
+    },
+    [text],
+  )
   return { busy, message, run }
 }

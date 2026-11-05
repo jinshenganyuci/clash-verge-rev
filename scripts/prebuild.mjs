@@ -724,8 +724,16 @@ async function resolveCoreHashes() {
     lines.push(`!define ${define} "${digest}"`)
   }
   for (const [name, macro, output] of [
-    ['stop-xboard-processes.ps1', 'WriteXboardCleanupScript', 'xboard-stop.ps1'],
-    ['migrate-ikun-install.ps1', 'WriteIkunMigrationScript', 'ikun-migrate.ps1'],
+    [
+      'stop-xboard-processes.ps1',
+      'WriteXboardCleanupScript',
+      'xboard-stop.ps1',
+    ],
+    [
+      'migrate-ikun-install.ps1',
+      'WriteIkunMigrationScript',
+      'ikun-migrate.ps1',
+    ],
   ]) {
     const script = await fsp.readFile(path.join(cwd, 'scripts', name), 'utf8')
     lines.push(

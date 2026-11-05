@@ -59,6 +59,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate translations and format changed frontend sources
+        id: frontend_generate
+        continue-on-error: true
         run: |
           pnpm i18n:types
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -71,9 +73,13 @@ jobs:
           }
 
       - name: Verify frontend formatting is committed
+        id: frontend_format
+        continue-on-error: true
         run: git diff --exit-code -- src scripts src-tauri/tauri.conf.json src-tauri/tauri.windows.conf.json src-tauri/capabilities/desktop.json
 
       - name: Frontend lint and tests
+        id: frontend_checks
+        continue-on-error: true
         run: |
           pnpm lint
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -105,6 +111,8 @@ jobs:
         run: cargo metadata --locked --format-version 1 --no-deps | Out-Null
 
       - name: Format Rust and generate IPC bindings
+        id: contracts
+        continue-on-error: true
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Set-Content dist/index.html '<!doctype html><title>IPC contract generation</title>'
@@ -113,6 +121,8 @@ jobs:
           pnpm gen:contract
 
       - name: Verify generated sources match the commit
+        id: generated_clean
+        continue-on-error: true
         run: git diff --exit-code
 
       - name: Typecheck generated frontend contracts
@@ -144,8 +154,8 @@ jobs:
         run: cargo test -p clash-verge --lib xboard --locked --features clippy
 
       - name: Require all validation checks before packaging
-        if: steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success' || steps.guide_ui.outcome != 'success'
-        run: throw 'TypeScript, Clippy, backend tests and connection guide UI checks must all pass before building an installer.'
+        if: steps.frontend_generate.outcome != 'success' || steps.frontend_format.outcome != 'success' || steps.frontend_checks.outcome != 'success' || steps.contracts.outcome != 'success' || steps.generated_clean.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success' || steps.guide_ui.outcome != 'success'
+        run: throw 'All source generation, formatting, type, lint, backend and UI checks must pass before building an installer.'
 
       - name: Restore release build cache after validation
         uses: Swatinem/rust-cache@v2

@@ -257,6 +257,15 @@ export default defineConfig([
     },
   },
   {
+    files: ['scripts/guide-smoke/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: './scripts/guide-smoke/tsconfig.json',
+      },
+    },
+  },
+  {
     files: ['src/**/*.{ts,tsx,js,jsx,mts,mjs}'],
     rules: ipcBoundaryRules(),
   },

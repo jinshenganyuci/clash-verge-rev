@@ -65,7 +65,10 @@ vi.mock('@/services/cmds', () => ({
   xboardGuideComplete: backend.guideComplete,
 }))
 vi.mock('@/services/query-client', () => ({
-  setCacheData: async (key: readonly string[], value: AccountSnapshot | ConnectionGuide) => {
+  setCacheData: async (
+    key: readonly string[],
+    value: AccountSnapshot | ConnectionGuide,
+  ) => {
     if (key[0] === 'xboardGuideSnapshot') {
       state.guideCached = value as ConnectionGuide
       state.guideWrites.push(value as ConnectionGuide)
@@ -77,7 +80,8 @@ vi.mock('@/services/query-client', () => ({
   revalidateQueries: async () => undefined,
   revalidateQuery: async (key: readonly string[]) => {
     if (key[0] === 'xboardSnapshot') state.cached = await backend.snapshot()
-    if (key[0] === 'xboardGuideSnapshot') state.guideCached = await backend.guideSnapshot()
+    if (key[0] === 'xboardGuideSnapshot')
+      state.guideCached = await backend.guideSnapshot()
     return state.cached
   },
 }))
@@ -281,7 +285,10 @@ describe('first connection guide', () => {
   })
 
   it('permits a manual change after cancellation settles even if its marker cannot be saved', async () => {
-    backend.guideCancel.mockRejectedValue({ code: 'XBOARD_STORAGE_FAILED', detail: 'Cannot save the marker.' })
+    backend.guideCancel.mockRejectedValue({
+      code: 'XBOARD_STORAGE_FAILED',
+      detail: 'Cannot save the marker.',
+    })
 
     await expect(interruptConnectionGuide()).resolves.toBeUndefined()
     expect(backend.snapshot).not.toHaveBeenCalled()
@@ -322,10 +329,17 @@ describe('first connection guide', () => {
     expect(backend.guideCancel).toHaveBeenCalledTimes(1)
     expect(state.cached?.guide_pending).toBe(false)
 
-    preparing.resolve({ ...initialGuide(), attempt_id: 1, phase: 'ready', node_name: 'Node A' })
+    preparing.resolve({
+      ...initialGuide(),
+      attempt_id: 1,
+      phase: 'ready',
+      node_name: 'Node A',
+    })
     expect((await preparation).phase).toBe('cancelled')
     expect(state.guideCached?.phase).toBe('cancelled')
-    expect(state.guideWrites.some((value) => value.phase === 'ready')).toBe(false)
+    expect(state.guideWrites.some((value) => value.phase === 'ready')).toBe(
+      false,
+    )
     expect(backend.guideConnect).not.toHaveBeenCalled()
   })
 
@@ -365,13 +379,21 @@ describe('first connection guide', () => {
   it('keeps the guide open after failed connection and permits a system-proxy retry', async () => {
     state.remote = { ...member(), guide_pending: true }
     state.cached = state.remote
-    const failure = { code: 'XBOARD_GUIDE_CONNECT_FAILED', detail: 'The connection could not be started.' }
+    const failure = {
+      code: 'XBOARD_GUIDE_CONNECT_FAILED',
+      detail: 'The connection could not be started.',
+    }
     backend.guideConnect.mockRejectedValueOnce(failure)
     await expect(connectAccount(4, 'tun')).rejects.toBe(failure)
     expect(state.cached?.guide_pending).toBe(true)
     expect(backend.guideComplete).not.toHaveBeenCalled()
 
-    backend.guideConnect.mockResolvedValue({ ...initialGuide(), attempt_id: 4, phase: 'connecting', mode: 'system' })
+    backend.guideConnect.mockResolvedValue({
+      ...initialGuide(),
+      attempt_id: 4,
+      phase: 'connecting',
+      mode: 'system',
+    })
     await connectAccount(4, 'system')
     expect(backend.guideConnect).toHaveBeenLastCalledWith(4, 'system')
     expect(state.guideCached?.phase).toBe('connecting')
@@ -381,8 +403,12 @@ describe('first connection guide', () => {
   it('releases the gate only after backend completion is persisted', async () => {
     state.remote = { ...member(), guide_pending: true }
     state.cached = state.remote
-    backend.guideComplete.mockRejectedValueOnce(new Error('Cannot save completion'))
-    await expect(completeConnectionGuide(4)).rejects.toThrow('Cannot save completion')
+    backend.guideComplete.mockRejectedValueOnce(
+      new Error('Cannot save completion'),
+    )
+    await expect(completeConnectionGuide(4)).rejects.toThrow(
+      'Cannot save completion',
+    )
     expect(state.cached?.guide_pending).toBe(true)
 
     backend.guideComplete.mockImplementation(async () => {

@@ -1,4 +1,12 @@
-import { Box, Button, CssBaseline, FormControlLabel, Switch, ThemeProvider, createTheme } from '@mui/material'
+import {
+  Box,
+  Button,
+  CssBaseline,
+  FormControlLabel,
+  Switch,
+  ThemeProvider,
+  createTheme,
+} from '@mui/material'
 import i18n from 'i18next'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -27,7 +35,11 @@ createRoot(document.getElementById('root')!).render(
           <AccountGate>
             <Box data-testid="normal-interface">
               <Button data-testid="background-node">手动切换节点</Button>
-              <FormControlLabel data-testid="background-proxy" control={<Switch />} label="系统代理开关" />
+              <FormControlLabel
+                data-testid="background-proxy"
+                control={<Switch />}
+                label="系统代理开关"
+              />
             </Box>
           </AccountGate>
         </Box>
