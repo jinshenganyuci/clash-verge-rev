@@ -2,6 +2,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {
+        // Collecting the shared IPC type graph exceeds MSVC's default main-thread stack in debug builds.
+        // Reserve enough stack for both the app startup and the frontend-contract example.
+        println!("cargo:rustc-link-arg=/STACK:16777216");
         // Tauri's resource is linked to the app binary, but not to Rust unit-test harnesses or examples.
         // Give non-app targets their own manifest so tests and examples can resolve TaskDialogIndirect.
         let out_dir = std::env::var_os("OUT_DIR").ok_or_else(|| std::io::Error::other("OUT_DIR is not set"))?;

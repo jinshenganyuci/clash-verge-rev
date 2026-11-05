@@ -325,7 +325,10 @@ pub async fn create_backup() -> Result<(String, PathBuf), Error> {
 
 fn profiles_without_xboard_account(text: &str) -> Result<std::string::String, Error> {
     let mut profiles: serde_yaml_ng::Value = serde_yaml_ng::from_str(text)?;
-    if let Some(items) = profiles.get_mut("items").and_then(serde_yaml_ng::Value::as_sequence_mut) {
+    if let Some(items) = profiles
+        .get_mut("items")
+        .and_then(serde_yaml_ng::Value::as_sequence_mut)
+    {
         items.retain(|item| item.get("uid").and_then(serde_yaml_ng::Value::as_str) != Some(crate::xboard::MANAGED_UID));
     }
     if profiles.get("current").and_then(serde_yaml_ng::Value::as_str) == Some(crate::xboard::MANAGED_UID)

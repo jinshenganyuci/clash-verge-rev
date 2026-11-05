@@ -104,6 +104,19 @@ function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $Timeo
     if ($process.ExitCode -ne 0) { throw "Process failed ($($process.ExitCode)): $Path" }
 }
 
+function Wait-AppReady([Diagnostics.Process] $Process) {
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        Start-Sleep -Seconds 1
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "Installed app exited during startup ($($Process.ExitCode))." }
+        $webView = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object ParentProcessId -eq $Process.Id
+        if ((Test-Path (Join-Path $appData 'verge.yaml')) -and $Process.MainWindowHandle -ne [IntPtr]::Zero -and $webView) {
+            return
+        }
+    }
+    throw 'Installed app did not create its own config, window and WebView2 process within 60 seconds.'
+}
+
 function Assert-UpstreamUntouched {
     foreach ($key in $createdKeys) {
         if (-not (Test-Path -LiteralPath $key) -or (Get-Item -LiteralPath $key).GetValue('') -ne $marker) {
@@ -263,18 +276,7 @@ try {
         throw 'The bundled helper did not install the independent production service.'
     }
     $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
-    $ready = $false
-    for ($attempt = 0; $attempt -lt 60; $attempt++) {
-        Start-Sleep -Seconds 1
-        $appProcess.Refresh()
-        if ($appProcess.HasExited) { throw "Installed app exited during startup ($($appProcess.ExitCode))." }
-        $webView = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object ParentProcessId -eq $appProcess.Id
-        if ((Test-Path (Join-Path $appData 'verge.yaml')) -and $appProcess.MainWindowHandle -ne [IntPtr]::Zero -and $webView) {
-            $ready = $true
-            break
-        }
-    }
-    if (-not $ready) { throw 'Installed app did not create its own config, window and WebView2 process within 60 seconds.' }
+    Wait-AppReady $appProcess
     if ($bootstrapExpected) {
         $webViewCoverage.status = 'passed'
         $webViewCoverage.reason = 'Real Runtime removal/absence, NSIS bootstrap installation, and the installed application WebView2 startup were exercised.'
@@ -316,12 +318,35 @@ public static class XboardSmokeWindow {
         Write-Warning "Optional first-run screenshot unavailable on this runner desktop: $_"
     }
     Assert-UpstreamUntouched
+    $onboardingMarker = Join-Path $appData 'xboard-onboarding-complete'
+    $dataSentinel = Join-Path $appData 'xboard-smoke-preserved.txt'
+    Set-Content -LiteralPath $onboardingMarker -Value '1' -NoNewline
+    Set-Content -LiteralPath $dataSentinel -Value $marker -NoNewline
+    $previousAppProcess = $appProcess
+    Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 180
+    $previousAppProcess.Refresh()
+    if (-not $previousAppProcess.HasExited) { throw 'Reinstall did not close the running Xboard application.' }
+    foreach ($expected in @(@{ Path = $onboardingMarker; Content = '1' }, @{ Path = $dataSentinel; Content = $marker })) {
+        if (-not (Test-Path -LiteralPath $expected.Path) -or (Get-Content -LiteralPath $expected.Path -Raw) -ne $expected.Content) {
+            throw "Reinstall changed preserved application data: $($expected.Path)"
+        }
+    }
+    if ((Get-Service -Name $serviceName).Status -ne 'Running') { throw 'Reinstall did not restart the Xboard service.' }
+    Assert-UpstreamUntouched
+    $appProcess = Start-Process -FilePath $appBinary -WorkingDirectory $installRoot -PassThru
+    Wait-AppReady $appProcess
+    if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1' -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne $marker) {
+        throw 'Restart after reinstall changed the onboarding marker or application data.'
+    }
+    Assert-UpstreamUntouched
+    'Same-version reinstall preserved onboarding and application data, restarted successfully, and left upstream sentinels untouched.' |
+        Tee-Object -FilePath (Join-Path $artifacts 'reinstall-result.txt')
     Invoke-BoundedProcess (Join-Path $installRoot 'uninstall.exe') "/S _?=$installRoot"
     $installed = $false
     if (Test-Path -LiteralPath $appBinary) { throw 'Uninstaller left the application executable behind.' }
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Uninstaller left the Xboard service registered.' }
     Assert-UpstreamUntouched
-    'Syntax, install, core staging, service isolation, application startup and uninstall smoke passed.' |
+    'Syntax, install, core staging, service isolation, application startup, same-version reinstall and uninstall smoke passed.' |
         Tee-Object -FilePath (Join-Path $artifacts 'result.txt')
 } finally {
     $logDirectory = Join-Path $appData 'logs'

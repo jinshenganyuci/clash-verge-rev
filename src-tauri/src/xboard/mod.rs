@@ -135,8 +135,10 @@ impl State {
                 Err(error) => { self.error = Some(error.to_string()); }
             }
             self.loaded = true;
-            if self.binding.is_none() && managed::exists().await {
-                if let Err(error) = managed::remove().await { self.error = Some(error.to_string()); }
+            if self.binding.is_none() && managed::exists().await
+                && let Err(error) = managed::remove().await
+            {
+                self.error = Some(error.to_string());
             }
         }
         Ok(())
@@ -200,6 +202,7 @@ impl State {
             return Ok(());
         }
         if !force && self.last_checked.is_some_and(|last| last.elapsed() < Duration::from_secs(300)) { return Ok(()); }
+        self.last_checked = Some(std::time::Instant::now());
         let subscription = self.fetch_subscription().await?;
         let mut binding = self.binding.clone().ok_or_else(Error::session_expired)?;
         let previous = binding.subscription.as_ref();
@@ -239,7 +242,6 @@ impl State {
         // The profile transaction has committed independently of the encrypted account cache.
         self.binding = Some(binding.clone());
         store::save(&binding).await?;
-        self.last_checked = Some(std::time::Instant::now());
         self.error = subscription_error;
         Ok(())
     }
@@ -422,22 +424,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn snapshot_does_not_expose_credentials_and_zero_traffic_is_not_expiry() {
-        let record = parse_subscription(&json!({"plan_id":1,"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"})).unwrap();
+    fn snapshot_does_not_expose_credentials_and_zero_traffic_is_not_expiry() -> anyhow::Result<()> {
+        let record = parse_subscription(&json!({"plan_id":1,"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"}))?;
         assert!(record.summary.plan_id.is_some());
         assert!(record.summary.expired_at.is_none());
         let state = State { binding: Some(Binding { email:"user@example.com".into(),bearer:"Bearer secret".into(),subscription:Some(record),profile_uid:None,last_sync:None }), ..Default::default() };
-        let wire = serde_json::to_string(&state.snapshot()).unwrap();
+        let wire = serde_json::to_string(&state.snapshot())?;
         assert!(!wire.contains("Bearer"));
         assert!(!wire.contains("/s/private"));
+        Ok(())
     }
 
     #[test]
-    fn registration_policy_normalizes_flags_and_rejects_unknown_policy() {
+    fn registration_policy_normalizes_flags_and_rejects_unknown_policy() -> anyhow::Result<()> {
         let policy = parse_registration_policy(&json!({
             "is_email_verify":"1", "is_invite_force":0, "is_captcha":true,
             "email_whitelist_suffix":[" EXAMPLE.COM ","mail.test"], "tos_url":"/terms"
-        })).unwrap();
+        }))?;
         assert!(policy.email_verification_required);
         assert!(!policy.invite_required);
         assert!(policy.captcha_required);
@@ -446,15 +449,16 @@ mod tests {
         let legacy = parse_registration_policy(&json!({
             "is_email_verify":false, "is_invite_force":"false", "is_recaptcha":"0",
             "email_whitelist_suffix":0, "tos_url":"javascript:alert(1)"
-        })).unwrap();
+        }))?;
         assert!(!legacy.captcha_required);
         assert!(legacy.email_domains.is_empty());
         assert!(legacy.terms_url.is_none());
         assert!(parse_registration_policy(&json!({"is_email_verify":"unknown"})).is_err());
+        Ok(())
     }
 
     #[test]
-    fn business_envelope_preserves_pagination_without_leaking_tokens() {
+    fn business_envelope_preserves_pagination_without_leaking_tokens() -> anyhow::Result<()> {
         let mut response = json!({
             "data":[{"email":"member@example.com","token":"secret","auth_data":"Bearer secret","nested":{"subscribe_url":"https://example.com/s/secret"}}],
             "total":31,"current_page":2,"last_page":4,"per_page":10
@@ -465,9 +469,10 @@ mod tests {
         assert_eq!(envelope.current_page, Some(2));
         assert_eq!(envelope.last_page, Some(4));
         assert_eq!(envelope.per_page, Some(10));
-        let wire = serde_json::to_string(&envelope).unwrap();
+        let wire = serde_json::to_string(&envelope)?;
         assert!(!wire.contains("secret"));
         assert!(wire.contains("member@example.com"));
+        Ok(())
     }
 
     #[test]

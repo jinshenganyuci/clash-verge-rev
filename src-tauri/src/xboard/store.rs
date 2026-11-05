@@ -97,11 +97,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dpapi_roundtrip_keeps_the_bearer_out_of_persisted_bytes() {
+    fn dpapi_roundtrip_keeps_the_bearer_out_of_persisted_bytes() -> anyhow::Result<()> {
         let plain = b"Bearer example-account-secret";
-        let encrypted = protect(plain).unwrap();
+        let encrypted = protect(plain)?;
         assert!(!encrypted.windows(plain.len()).any(|window| window == plain));
-        assert_eq!(unprotect(&encrypted).unwrap(), plain);
+        assert_eq!(unprotect(&encrypted)?, plain);
         assert!(unprotect(b"not dpapi ciphertext").is_err());
+        Ok(())
     }
 }

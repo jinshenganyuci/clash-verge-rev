@@ -39,7 +39,7 @@ impl XboardOperation {
         !matches!(self, Self::RegistrationPolicy | Self::SendEmailCode)
     }
 
-    fn route(self) -> (&'static str, Method, &'static [&'static str]) {
+    const fn route(self) -> (&'static str, Method, &'static [&'static str]) {
         match self {
             Self::RegistrationPolicy => ("guest/comm/config", Method::GET, &[]),
             Self::SendEmailCode => ("passport/comm/sendEmailVerify", Method::POST, &["email"]),
@@ -261,33 +261,36 @@ mod tests {
     }
 
     #[test]
-    fn subscription_exporter_is_explicit_and_credentials_cannot_change_origin() {
-        let url = subscription_url("https://example.com/s/secret?flag=clash&x=1").unwrap();
+    fn subscription_exporter_is_explicit_and_credentials_cannot_change_origin() -> anyhow::Result<()> {
+        let url = subscription_url("https://example.com/s/secret?flag=clash&x=1")?;
         assert_eq!(url.query_pairs().filter(|(key, _)| key == "flag").collect::<Vec<_>>(), vec![("flag".into(), "mihomo".into())]);
         assert!(subscription_url("http://example.com/s/secret").is_err());
         assert!(subscription_url("https://user:pass@example.com/s/secret").is_err());
         assert!(checked_params(XboardOperation::Tickets, json!({"url":"https://evil.example"})).is_err());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn api_mock_preserves_business_errors_and_never_follows_redirects() {
+    async fn api_mock_preserves_business_errors_and_never_follows_redirects() -> anyhow::Result<()> {
         use warp::Filter as _;
         let routes = warp::path("business").map(|| warp::reply::with_status(warp::reply::json(&json!({"status":"fail","message":"Permission denied"})), StatusCode::FORBIDDEN))
             .or(warp::path("expired").map(|| warp::reply::with_status(warp::reply::json(&json!({"status":"fail","message":"未登录或登陆已过期"})), StatusCode::FORBIDDEN)))
             .or(warp::path("redirect").map(|| warp::redirect::temporary(warp::http::Uri::from_static("http://127.0.0.1:1/should-not-be-requested"))));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
         let server = tokio::spawn(warp::serve(routes).incoming(listener).run());
         let base = format!("http://{address}");
-        assert_eq!(request_at(&base,"business",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_REQUEST_FAILED");
-        assert_eq!(request_at(&base,"expired",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_SESSION_EXPIRED");
-        assert_eq!(request_at(&base,"redirect",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_REQUEST_FAILED");
+        assert_eq!(request_at(&base,"business",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_REQUEST_FAILED"));
+        assert_eq!(request_at(&base,"expired",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_SESSION_EXPIRED"));
+        assert_eq!(request_at(&base,"redirect",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_REQUEST_FAILED"));
         server.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn all_member_operations_use_only_the_expected_route_method_and_parameters() {
-        use std::{collections::HashMap, sync::{Arc, Mutex}};
+    async fn all_member_operations_use_only_the_expected_route_method_and_parameters() -> anyhow::Result<()> {
+        use parking_lot::Mutex;
+        use std::{collections::HashMap, sync::Arc};
         use warp::Filter as _;
 
         #[derive(Debug)]
@@ -314,14 +317,15 @@ mod tests {
                 } else {
                     json!({"status":"success","data":{"ok":true}})
                 };
-                received.lock().unwrap().push(Captured {
+                let request = Captured {
                     path: path.as_str().to_owned(), method, authorization, query,
-                    body: if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() },
-                });
+                    body: if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap_or(Value::Null) },
+                };
+                received.lock().push(request);
                 warp::reply::json(&response)
             });
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let base = format!("http://{}", listener.local_addr()?);
         let server = tokio::spawn(warp::serve(route).incoming(listener).run());
         let cases = [
             (XboardOperation::RegistrationPolicy, "/guest/comm/config", Method::GET, json!({})),
@@ -350,13 +354,13 @@ mod tests {
             (XboardOperation::TelegramBot, "/user/telegram/getBotInfo", Method::GET, json!({})),
         ];
         for (operation, path, method, params) in &cases {
-            let response = operation_at(&base, *operation, Some("Bearer test"), params.clone()).await.unwrap();
+            let response = operation_at(&base, *operation, Some("Bearer test"), params.clone()).await?;
             if matches!(operation, XboardOperation::InviteDetails) {
                 assert_eq!(response["total"], 31);
                 assert_eq!(response["current_page"], 2);
             }
-            let requests = captured.lock().unwrap();
-            let last = requests.last().unwrap();
+            let requests = captured.lock();
+            let last = requests.last().ok_or_else(|| anyhow::anyhow!("Mock did not capture the request"))?;
             assert_eq!(last.path.as_str(), *path);
             assert_eq!(&last.method, method);
             assert_eq!(last.authorization.as_deref(), operation.authenticated().then_some("Bearer test"));
@@ -364,29 +368,30 @@ mod tests {
                 assert_eq!(&last.body, params);
                 assert!(last.query.is_empty());
             } else {
-                let expected: HashMap<_, _> = params.as_object().unwrap().iter().map(|(key,value)| {
+                let expected: HashMap<_, _> = params.as_object().ok_or_else(|| anyhow::anyhow!("Test parameters must be an object"))?.iter().map(|(key,value)| {
                     (key.clone(), value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
                 }).collect();
                 assert_eq!(last.query, expected);
                 assert!(last.body.is_null());
             }
         }
-        assert_eq!(captured.lock().unwrap().len(), cases.len());
+        assert_eq!(captured.lock().len(), cases.len());
         for operation in [XboardOperation::Nodes, XboardOperation::Traffic, XboardOperation::Knowledge, XboardOperation::Tickets, XboardOperation::Orders, XboardOperation::Invites, XboardOperation::UserInfo] {
-            let response = operation_at(&base, operation, Some("Bearer empty"), json!({})).await.unwrap();
+            let response = operation_at(&base, operation, Some("Bearer empty"), json!({})).await?;
             assert_eq!(response["data"], json!([]));
         }
-        let before = captured.lock().unwrap().len();
+        let before = captured.lock().len();
         assert!(operation_at(&base, XboardOperation::Withdraw, Some("Bearer test"), json!({"amount":1})).await.is_err());
         assert!(operation_at(&base, XboardOperation::TicketSave, Some("Bearer test"), json!({"method":"DELETE"})).await.is_err());
         assert!(operation_at(&base, XboardOperation::UserInfo, None, json!({})).await.is_err());
-        assert_eq!(captured.lock().unwrap().len(), before);
+        assert_eq!(captured.lock().len(), before);
         assert!(serde_json::from_value::<XboardOperation>(json!("user/arbitrary/path")).is_err());
         server.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn a_failed_mutation_is_never_automatically_replayed() {
+    async fn a_failed_mutation_is_never_automatically_replayed() -> anyhow::Result<()> {
         use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
         use warp::Filter as _;
         let requests = Arc::new(AtomicUsize::new(0));
@@ -395,8 +400,8 @@ mod tests {
             received.fetch_add(1, Ordering::SeqCst);
             warp::reply::with_status(warp::reply::json(&json!({"status":"fail"})), StatusCode::INTERNAL_SERVER_ERROR)
         });
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let base = format!("http://{}", listener.local_addr()?);
         let server = tokio::spawn(warp::serve(route).incoming(listener).run());
         for (operation, params) in [
             (XboardOperation::TicketSave, json!({"subject":"test","level":1,"message":"test"})),
@@ -410,5 +415,6 @@ mod tests {
             assert_eq!(requests.load(Ordering::SeqCst), before + 1);
         }
         server.abort();
+        Ok(())
     }
 }

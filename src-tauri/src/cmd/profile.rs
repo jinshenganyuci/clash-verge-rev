@@ -140,7 +140,9 @@ pub async fn create_profile(item: ProfileCreate, file_data: Option<std::string::
 #[specta::specta]
 pub async fn update_profile(index: std::string::String, option: Option<PrfOption>) -> CmdResult {
     if index == crate::xboard::MANAGED_UID {
-        crate::xboard::refresh(true).await.map_err(|error| coded_error(error.code, error))?;
+        crate::xboard::refresh(true)
+            .await
+            .map_err(|error| coded_error(error.code, error))?;
         return Ok(());
     }
     let index: String = index.into();

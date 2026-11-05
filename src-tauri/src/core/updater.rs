@@ -1,3 +1,5 @@
+#![allow(dead_code, reason = "Application updates are disabled in the Xboard distribution; retain upstream updater code for future merges.")]
+
 use crate::{config::Config, singleton, utils::dirs};
 use anyhow::{Context as _, Result};
 use chrono::Utc;

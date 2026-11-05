@@ -92,7 +92,7 @@ pub async fn install(text: &str, subscription: &XboardSubscription, activate: bo
         item.itype = Some("local".into());
         item.name = Some("IKUN subscription".into());
         item.desc = Some("Managed by your IKUN account".into());
-        item.file = Some(filename.into());
+        item.file = Some(filename);
         item.url = None;
         item.option = Some(PrfOption { allow_auto_update: Some(false), ..Default::default() });
         item.updated = Some(super::now() as usize);
@@ -230,12 +230,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_reject_snapshot_revokes_old_nodes_but_bad_yaml_does_not() {
+    fn empty_reject_snapshot_revokes_old_nodes_but_bad_yaml_does_not() -> anyhow::Result<()> {
         assert!(revoked_configuration("proxies: []\nproxy-groups: []\nrules: [MATCH,REJECT]").is_err());
-        assert!(revoked_configuration("proxies: []\nproxy-groups: []\nrules: ['MATCH,REJECT']").unwrap());
-        assert!(!revoked_configuration("proxies: [{name: test}]\nrules: ['MATCH,REJECT']").unwrap());
+        assert!(revoked_configuration("proxies: []\nproxy-groups: []\nrules: ['MATCH,REJECT']")?);
+        assert!(!revoked_configuration("proxies: [{name: test}]\nrules: ['MATCH,REJECT']")?);
         assert!(revoked_configuration("proxies: [").is_err());
         assert!(revoked_configuration("proxies: []\nrules: ['MATCH,DIRECT']").is_err());
+        Ok(())
     }
 
     #[test]
