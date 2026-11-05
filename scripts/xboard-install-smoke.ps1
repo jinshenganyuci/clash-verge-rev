@@ -186,10 +186,166 @@ function Wait-AppReady([Diagnostics.Process] $Process) {
     throw 'Installed app did not create its own config, visible 640x400 window and WebView2 process within 60 seconds.'
 }
 
-function Assert-AppUI([int] $Port, [string] $Mode) {
-    $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
-    $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
-    Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180 "$Mode-ui"
+function Assert-AppUI([Diagnostics.Process] $Process, [int] $Port, [string] $Mode) {
+    $diagnostics = Get-Content -LiteralPath (Join-Path $artifacts "$Mode-webview-processes.json") -Raw | ConvertFrom-Json
+    $debugEnabled = @($diagnostics.DirectWebViewProcesses | Where-Object HasExpectedDebugPort).Count -gt 0
+    if ($debugEnabled) {
+        $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+        $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
+        Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180 "$Mode-ui"
+        return
+    }
+    Write-Host 'WebView2 did not enable CDP; checking the installed UI through Windows UI Automation.'
+    $window = [XboardSmokeWindow]::FindApplicationWindow([uint32]$Process.Id)
+    if ($window -eq [IntPtr]::Zero) { throw 'The visible application window disappeared before UI Automation.' }
+    # Windows PowerShell loads the OS .NET Framework UIA assemblies without pwsh's WPF resolution differences.
+    $legacyPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $helper = Join-Path $sentinelRoot 'xboard-ui-automation.ps1'
+    $uiaScript = @'
+param(
+    [Parameter(Mandatory = $true)][long] $WindowHandle,
+    [Parameter(Mandatory = $true)][ValidateSet('first-run', 'reinstall')][string] $Mode,
+    [Parameter(Mandatory = $true)][string] $Artifacts,
+    [Parameter(Mandatory = $true)][string] $DataDirectory
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
+    throw 'UI Automation is limited to disposable Windows GitHub runners.'
+}
+$lastNames = @()
+$evidence = [ordered]@{ mode = $Mode; transport = 'Windows UI Automation'; welcome = $false; main = $false; markerWrittenByApp = $false }
+function Write-Evidence([string] $Name, [object] $Value) {
+    [IO.File]::WriteAllText((Join-Path $Artifacts $Name), ($Value | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+}
+try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase, System.Drawing, System.Windows.Forms
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class XboardUiaInput {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput {
+        public int dx, dy;
+        public uint mouseData, flags, time;
+        public UIntPtr extraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input { public uint type; public MouseInput mouse; }
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint count, Input[] inputs, int size);
+    public static void Click(int x, int y) {
+        if (!SetCursorPos(x, y)) throw new Win32Exception();
+        Input[] inputs = new Input[2];
+        inputs[0].mouse.flags = 0x0002;
+        inputs[1].mouse.flags = 0x0004;
+        if (SendInput(2, inputs, Marshal.SizeOf(typeof(Input))) != 2) throw new Win32Exception();
+    }
+}
+"@
+    function Find-NamedControl([object[]] $Items, [string[]] $Names) {
+        $normalized = @($Names | ForEach-Object { ($_ -replace '\s', '').ToLowerInvariant() })
+        return $Items | Where-Object { $_.Normalized -in $normalized } | Select-Object -First 1
+    }
+    function Get-UiState {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$WindowHandle)
+        $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        $items = @(foreach ($element in $elements) {
+            try {
+                $current = $element.Current
+                if (-not $current.IsOffscreen -and -not [string]::IsNullOrWhiteSpace($current.Name)) {
+                    [PSCustomObject]@{
+                        Name = $current.Name
+                        Normalized = ($current.Name -replace '\s', '').ToLowerInvariant()
+                        Element = $element
+                    }
+                }
+            } catch [System.Windows.Automation.ElementNotAvailableException] { }
+        })
+        $script:lastNames = @($items | ForEach-Object { $_.Name.Substring(0, [Math]::Min(160, $_.Name.Length)) } | Select-Object -Unique -First 80)
+        $welcome = Find-NamedControl $items @('欢迎使用 Clash Verge Xboard', 'Welcome to Clash Verge Xboard')
+        $login = Find-NamedControl $items @('登录', 'Sign in')
+        $register = Find-NamedControl $items @('注册账号', 'Register')
+        $skip = Find-NamedControl $items @('暂时跳过，进入客户端', 'Skip for now and open the client')
+        $homeControl = Find-NamedControl $items @('首页', '首頁', 'Home')
+        $account = Find-NamedControl $items @('账户', '帳戶', 'Account')
+        [PSCustomObject]@{
+            Welcome = [bool]$welcome
+            Login = [bool]$login
+            Register = [bool]$register
+            Skip = if ($skip) { $skip.Element } else { $null }
+            Main = -not $welcome -and -not $skip -and [bool]$homeControl -and [bool]$account
+        }
+    }
+    function Save-UiaScreenshot([string] $Name) {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$WindowHandle)
+        $rect = $root.Current.BoundingRectangle
+        $window = [Drawing.Rectangle]::new([int]$rect.Left, [int]$rect.Top, [int]$rect.Width, [int]$rect.Height)
+        $bounds = [Drawing.Rectangle]::Intersect($window, [Windows.Forms.SystemInformation]::VirtualScreen)
+        if ($bounds.Width -lt 640 -or $bounds.Height -lt 400) { throw 'UI Automation screenshot is smaller than 640x400.' }
+        $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $Artifacts $Name), [Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
+        }
+        return @{ width = $bounds.Width; height = $bounds.Height }
+    }
+    $markerPath = Join-Path $DataDirectory 'xboard-onboarding-complete'
+    if ($Mode -eq 'first-run') {
+        if (Test-Path -LiteralPath $markerPath) { throw 'Onboarding was already complete before the UI test.' }
+        $deadline = [DateTime]::UtcNow.AddSeconds(60)
+        do {
+            $state = Get-UiState
+            $ready = $state.Welcome -and $state.Login -and $state.Register -and $null -ne $state.Skip -and $state.Skip.Current.IsEnabled
+            if ($ready) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $ready) { throw 'UI Automation did not expose the welcome heading, login/register tabs and enabled Skip button within 60 seconds.' }
+        $evidence.welcome = $true
+        $evidence['welcomeNames'] = $lastNames
+        $evidence['screenshot'] = Save-UiaScreenshot 'first-run-window.png'
+        $pattern = $null
+        if ($state.Skip.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+            ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+            $evidence['skipAction'] = 'InvokePattern'
+        } else {
+            $point = $state.Skip.GetClickablePoint()
+            [XboardUiaInput]::Click([int]$point.X, [int]$point.Y)
+            $evidence['skipAction'] = 'SendInput'
+        }
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        $state = Get-UiState
+        $complete = (Test-Path -LiteralPath $markerPath) -and (Get-Content -LiteralPath $markerPath -Raw) -eq '1'
+        $ready = $state.Main -and $complete
+        if ($ready) { break }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $ready) { throw 'UI Automation did not find home/account navigation without welcome, together with the app-written onboarding marker.' }
+    $evidence.main = $true
+    $evidence.markerWrittenByApp = $true
+    $evidence['mainNames'] = $lastNames
+    $evidence['mainScreenshot'] = Save-UiaScreenshot "$Mode-home.png"
+    Write-Evidence "$Mode-ui.json" $evidence
+    Write-Host "$Mode UI Automation: real UI, Skip and persisted onboarding passed."
+} catch {
+    $failure = @{ error = $_.Exception.Message; names = $lastNames; evidence = $evidence }
+    Write-Evidence "$Mode-ui-failure.json" $failure
+    Write-Host ($failure | ConvertTo-Json -Depth 6)
+    throw
+}
+'@
+    Set-Content -LiteralPath $helper -Value $uiaScript -Encoding utf8BOM
+    Invoke-BoundedProcess $legacyPowerShell "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helper`" -WindowHandle $($window.ToInt64()) -Mode $Mode -Artifacts `"$artifacts`" -DataDirectory `"$appData`"" 180 "$Mode-ui"
 }
 
 function Save-WebViewDiagnostics([Diagnostics.Process] $Process, [int] $Port, [string] $Mode) {
@@ -395,7 +551,7 @@ try {
     Wait-AppReady $appProcess
     Save-NativeWindowScreenshot $appProcess 'first-run'
     Save-WebViewDiagnostics $appProcess $debugPort 'first-run'
-    Assert-AppUI $debugPort 'first-run'
+    Assert-AppUI $appProcess $debugPort 'first-run'
     if ($bootstrapExpected) {
         $webViewCoverage.status = 'passed'
         $webViewCoverage.reason = 'Real Runtime removal/absence, NSIS bootstrap installation, and the installed application WebView2 startup were exercised.'
@@ -422,7 +578,7 @@ try {
     Wait-AppReady $appProcess
     Save-NativeWindowScreenshot $appProcess 'reinstall'
     Save-WebViewDiagnostics $appProcess $debugPort 'reinstall'
-    Assert-AppUI $debugPort 'reinstall'
+    Assert-AppUI $appProcess $debugPort 'reinstall'
     if ((Get-Content -LiteralPath $onboardingMarker -Raw) -ne '1' -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne $marker) {
         throw 'Restart after reinstall changed the onboarding marker or application data.'
     }
