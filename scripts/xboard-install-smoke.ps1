@@ -110,7 +110,10 @@ function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $Timeo
     try {
         $process = Start-Process @options
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            $process.Kill($true)
+            try { Save-ProcessTimeoutDiagnostics $process $Path }
+            catch { Write-Warning "Timeout diagnostics failed: $_" }
+            $process.Refresh()
+            if (-not $process.HasExited) { $process.Kill($true) }
             throw "Process timed out after ${TimeoutSeconds}s: $Path"
         }
         $process.WaitForExit()
@@ -126,13 +129,17 @@ function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $Timeo
 
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class XboardSmokeWindow {
     [StructLayout(LayoutKind.Sequential)]
     public struct Rect { public int Left, Top, Right, Bottom; }
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern bool EnumChildWindows(IntPtr parent, EnumWindowsCallback callback, IntPtr parameter);
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll")]
@@ -141,6 +148,63 @@ public static class XboardSmokeWindow {
     public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder name, int length);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr length, StringBuilder text, uint flags, uint timeout, out UIntPtr result);
+    public sealed class WindowInfo {
+        public long Handle;
+        public uint ProcessId;
+        public string ClassName;
+        public string Text;
+        public bool Visible;
+        public Rect Bounds;
+        public string[] ChildText;
+    }
+    private static string ReadText(IntPtr window) {
+        var text = new StringBuilder(2048);
+        UIntPtr result;
+        SendMessageTimeout(window, 0x000D, (UIntPtr)2048, text, 0x0002, 200, out result);
+        return text.ToString();
+    }
+    public static bool HasOwnedForeground(uint[] processIds) {
+        uint owner;
+        GetWindowThreadProcessId(GetForegroundWindow(), out owner);
+        return new HashSet<uint>(processIds).Contains(owner);
+    }
+    public static WindowInfo[] DescribeWindows(uint[] processIds) {
+        var owners = new HashSet<uint>(processIds);
+        var windows = new List<WindowInfo>();
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (!owners.Contains(owner)) return true;
+            var name = new StringBuilder(256);
+            GetClassName(window, name, name.Capacity);
+            Rect rectangle;
+            GetWindowRect(window, out rectangle);
+            var children = new List<string>();
+            EnumChildWindows(window, (child, childParameter) => {
+                uint childOwner;
+                GetWindowThreadProcessId(child, out childOwner);
+                if (owners.Contains(childOwner) && children.Count < 100) {
+                    string value = ReadText(child);
+                    if (!String.IsNullOrWhiteSpace(value)) children.Add(value);
+                }
+                return true;
+            }, IntPtr.Zero);
+            windows.Add(new WindowInfo {
+                Handle = window.ToInt64(), ProcessId = owner,
+                ClassName = name.ToString(), Text = ReadText(window),
+                Visible = IsWindowVisible(window), Bounds = rectangle,
+                ChildText = children.ToArray()
+            });
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
     public static IntPtr FindApplicationWindow(uint processId) {
         IntPtr found = IntPtr.Zero;
         long largestArea = 0;
@@ -163,6 +227,73 @@ public static class XboardSmokeWindow {
     }
 }
 '@
+
+function Save-ProcessTimeoutDiagnostics([Diagnostics.Process] $Process, [string] $Path) {
+    $directory = Join-Path $artifacts "timeout-$($Process.Id)"
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    $snapshot = @(Get-CimInstance Win32_Process)
+    $ownedIds = [Collections.Generic.HashSet[uint32]]::new()
+    [void]$ownedIds.Add([uint32]$Process.Id)
+    do {
+        $added = $false
+        foreach ($entry in $snapshot) {
+            if ($ownedIds.Contains([uint32]$entry.ParentProcessId) -and $ownedIds.Add([uint32]$entry.ProcessId)) { $added = $true }
+        }
+    } while ($added)
+    [uint32[]] $processIds = @($ownedIds)
+    $windows = @([XboardSmokeWindow]::DescribeWindows($processIds))
+    $registry = @(foreach ($hive in @('HKLM:', 'HKCU:')) {
+        foreach ($key in @("$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\Clash Verge Xboard", "$hive\Software\jinshenganyuci\Clash Verge Xboard")) {
+            if (Test-Path -LiteralPath $key) {
+                $item = Get-Item -LiteralPath $key
+                [PSCustomObject]@{
+                    Path = $key
+                    Default = $item.GetValue('')
+                    DisplayName = $item.GetValue('DisplayName')
+                    DisplayVersion = $item.GetValue('DisplayVersion')
+                    InstallLocation = $item.GetValue('InstallLocation')
+                    MainBinaryName = $item.GetValue('MainBinaryName')
+                    UninstallString = $item.GetValue('UninstallString')
+                }
+            }
+        }
+    })
+    $state = [ordered]@{
+        Executable = $Path
+        Processes = @($snapshot | Where-Object { $ownedIds.Contains([uint32]$_.ProcessId) } | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath)
+        Windows = $windows
+        Registry = $registry
+        Service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, DisplayName, State, StartMode, PathName
+        Files = @(foreach ($root in @($installRoot, $legacyRoot)) {
+            if (Test-Path -LiteralPath $root) { Get-ChildItem -LiteralPath $root -File -Recurse | Select-Object FullName, Length, LastWriteTimeUtc }
+        })
+    }
+    $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $directory 'state.json')
+    foreach ($window in $windows) {
+        Write-Host "Owned timeout window [$($window.ProcessId)] $($window.Text): $($window.ChildText -join ' | ')"
+    }
+    Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+    foreach ($window in @($windows | Where-Object Visible)) {
+        try {
+            [void][XboardSmokeWindow]::SetForegroundWindow([IntPtr]$window.Handle)
+            Start-Sleep -Milliseconds 250
+            if (-not [XboardSmokeWindow]::HasOwnedForeground($processIds)) { continue }
+            $rectangle = $window.Bounds
+            $windowBounds = [Drawing.Rectangle]::FromLTRB($rectangle.Left, $rectangle.Top, $rectangle.Right, $rectangle.Bottom)
+            $bounds = [Drawing.Rectangle]::Intersect($windowBounds, [Windows.Forms.SystemInformation]::VirtualScreen)
+            if ($bounds.Width -lt 1 -or $bounds.Height -lt 1) { continue }
+            $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+            $graphics = [Drawing.Graphics]::FromImage($bitmap)
+            try {
+                $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
+                $bitmap.Save((Join-Path $directory "window-$($window.Handle).png"), [Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+                $graphics.Dispose()
+                $bitmap.Dispose()
+            }
+        } catch { Write-Warning "Owned timeout window screenshot failed: $_" }
+    }
+}
 
 function Set-AppDebugPort {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
