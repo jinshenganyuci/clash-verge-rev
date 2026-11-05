@@ -171,7 +171,7 @@ function Wait-AppReady([Diagnostics.Process] $Process) {
 }
 
 function Assert-AppUI([int] $Port, [string] $Mode) {
-    $node = (Get-Command node -CommandType Application).Source
+    $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
     $helper = Join-Path $PSScriptRoot 'xboard-ui-smoke.mjs'
     Invoke-BoundedProcess $node "`"$helper`" --port $Port --mode $Mode --artifacts `"$artifacts`" --data-dir `"$appData`"" 180
 }
