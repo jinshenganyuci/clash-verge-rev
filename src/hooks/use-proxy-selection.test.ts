@@ -62,7 +62,10 @@ it('applies and records independent group selections while another group is pend
 it('waits for the guide cancellation barrier before a manual selection', async () => {
   let finishCancellation!: () => void
   interrupt.mockImplementationOnce(
-    () => new Promise<void>((resolve) => { finishCancellation = resolve }),
+    () =>
+      new Promise<void>((resolve) => {
+        finishCancellation = resolve
+      }),
   )
   vi.mocked(selectNodeForGroup).mockResolvedValue(undefined)
   const selection = useProxySelection()
@@ -73,6 +76,8 @@ it('waits for the guide cancellation barrier before a manual selection', async (
   expect(record).not.toHaveBeenCalled()
 
   finishCancellation()
-  await vi.waitFor(() => expect(record).toHaveBeenCalledWith('Group A', 'Node A'))
+  await vi.waitFor(() =>
+    expect(record).toHaveBeenCalledWith('Group A', 'Node A'),
+  )
   expect(selectNodeForGroup).toHaveBeenCalledOnce()
 })

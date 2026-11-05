@@ -353,6 +353,7 @@ try {
     'tun',
   )
   assert.equal(successful.fixture.pending, false)
+  assert.equal(successful.fixture.homeTab, 'tun')
   assert.ok(
     successful.fixture.reads >= 3,
     'The real guide polling remains active during setup',
@@ -367,6 +368,7 @@ try {
     (await inspect()).buttons.includes('重试连接'),
   )
   assert.equal(lastState.main, false)
+  assert.equal(lastState.fixture.homeTab, 'tun')
   assert.equal(
     lastState.fixture.calls.some((call) => call.command === 'complete'),
     false,
@@ -390,8 +392,9 @@ try {
     1,
   )
   checks.push({ scenario: 'failure', state: retried })
+  assert.equal(retried.fixture.homeTab, 'system')
 
-  await openScenario('cancel', 'light')
+  const beforeCancellation = await openScenario('cancel', 'light')
   await click('button', '暂不连接')
   await waitFor('cancelled guide closes', async () => (await inspect()).main)
   await delay(1200)
@@ -407,6 +410,7 @@ try {
     false,
   )
   assert.equal(cancelled.fixture.pending, false)
+  assert.equal(cancelled.fixture.homeTab, beforeCancellation.fixture.homeTab)
   checks.push({ scenario: 'cancel', state: cancelled })
   assert.deepEqual(browserErrors, [])
   await writeFile(

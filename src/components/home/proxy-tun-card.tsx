@@ -22,8 +22,7 @@ import { useSystemProxyState } from '@/hooks/use-system-proxy-state'
 import { useSystemState } from '@/hooks/use-system-state'
 import { useVerge } from '@/hooks/use-verge'
 import { showNotice } from '@/services/notice-service'
-
-const LOCAL_STORAGE_TAB_KEY = 'clash-verge-proxy-active-tab'
+import { HOME_PROXY_TAB_KEY } from '@/utils/home-proxy-tab'
 
 interface TabButtonProps {
   isActive: boolean
@@ -138,7 +137,7 @@ export const ProxyTunCard: FC = () => {
   const { t } = useTranslation()
   const theme = useTheme()
   const [activeTab, setActiveTab] = useState<string>(
-    () => localStorage.getItem(LOCAL_STORAGE_TAB_KEY) || 'system',
+    () => localStorage.getItem(HOME_PROXY_TAB_KEY) || 'system',
   )
 
   const { verge } = useVerge()
@@ -154,7 +153,7 @@ export const ProxyTunCard: FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab)
-    localStorage.setItem(LOCAL_STORAGE_TAB_KEY, tab)
+    localStorage.setItem(HOME_PROXY_TAB_KEY, tab)
   }
 
   const tabDescription = useMemo(() => {

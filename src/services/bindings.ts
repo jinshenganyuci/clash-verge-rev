@@ -25,6 +25,19 @@ export const commands = {
     __TAURI_INVOKE<null>('xboard_copy_subscription'),
   xboardCopyTelegramBinding: () =>
     __TAURI_INVOKE<null>('xboard_copy_telegram_binding'),
+  xboardGuideSnapshot: () =>
+    __TAURI_INVOKE<XboardGuideSnapshot>('xboard_guide_snapshot'),
+  xboardGuidePrepare: () =>
+    __TAURI_INVOKE<XboardGuideSnapshot>('xboard_guide_prepare'),
+  xboardGuideCancel: () =>
+    __TAURI_INVOKE<XboardGuideSnapshot>('xboard_guide_cancel'),
+  xboardGuideConnect: (attemptId: number, mode: XboardGuideMode) =>
+    __TAURI_INVOKE<XboardGuideSnapshot>('xboard_guide_connect', {
+      attemptId,
+      mode,
+    }),
+  xboardGuideComplete: (attemptId: number) =>
+    __TAURI_INVOKE<XboardGuideSnapshot>('xboard_guide_complete', { attemptId }),
   getSystemInfo: () => __TAURI_INVOKE<SystemInfo>('get_system_info'),
   /**  获取应用的运行时间（毫秒） */
   getAppUptime: () => __TAURI_INVOKE<number>('get_app_uptime'),
@@ -1082,6 +1095,33 @@ export type XboardBusinessResponse_Serialize = {
   per_page?: number | null
 }
 
+export type XboardGuideFailureStage = 'prepare' | 'connect'
+
+export type XboardGuideMode = 'tun' | 'system'
+
+export type XboardGuidePhase =
+  | 'idle'
+  | 'syncing'
+  | 'testing'
+  | 'ready'
+  | 'connecting'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+export type XboardGuideSnapshot = {
+  attempt_id: number
+  phase: XboardGuidePhase
+  mode: XboardGuideMode
+  group_name: string | null
+  node_name: string | null
+  latency_ms: number | null
+  error: string | null
+  error_stage: XboardGuideFailureStage | null
+  tested: number
+  total: number
+}
+
 export type XboardOperation =
   | 'registration_policy'
   | 'send_email_code'
@@ -1125,6 +1165,7 @@ export type XboardRequestParams = { [key in string]: JsonValue }
 
 export type XboardSnapshot = {
   onboarding_complete: boolean
+  guide_pending: boolean
   signed_in: boolean
   email: string | null
   profile_uid: string | null

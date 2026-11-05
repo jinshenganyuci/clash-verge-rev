@@ -1,4 +1,5 @@
 import { setCacheData } from '@/services/query-client'
+import { HOME_PROXY_TAB_KEY } from '@/utils/home-proxy-tab'
 
 export type ConnectionMode = 'tun' | 'system'
 type Phase =
@@ -138,7 +139,13 @@ Object.assign(window, {
       }
     },
     state() {
-      return { calls, reads, guide, pending: account.guide_pending }
+      return {
+        calls,
+        reads,
+        guide,
+        pending: account.guide_pending,
+        homeTab: localStorage.getItem(HOME_PROXY_TAB_KEY),
+      }
     },
   },
 })

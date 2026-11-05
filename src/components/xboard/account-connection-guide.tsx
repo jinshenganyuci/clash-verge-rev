@@ -29,9 +29,19 @@ import {
   prepareConnectionGuide,
   type ConnectionMode,
 } from '@/services/xboard'
+import { HOME_PROXY_TAB_KEY } from '@/utils/home-proxy-tab'
 
 import { accountError } from './errors'
 import { TaskMessage } from './shared'
+
+function finishConnectionGuide(attemptId: number, mode: ConnectionMode) {
+  try {
+    window.localStorage.setItem(HOME_PROXY_TAB_KEY, mode)
+  } catch {
+    // A display preference must not prevent completing a working connection.
+  }
+  return completeConnectionGuide(attemptId)
+}
 
 export function AccountConnectionGuide() {
   const text = useAccountText()
@@ -61,12 +71,13 @@ export function AccountConnectionGuide() {
     )
       return
     const attemptId = state.attempt_id
+    const connectedMode = state.mode
     const timer = window.setTimeout(() => {
       completedAttemptRef.current = attemptId
-      void finish(() => completeConnectionGuide(attemptId))
+      void finish(() => finishConnectionGuide(attemptId, connectedMode))
     }, 1000)
     return () => window.clearTimeout(timer)
-  }, [state?.phase, state?.attempt_id, finish])
+  }, [state?.phase, state?.attempt_id, state?.mode, finish])
 
   const ready = phase === 'ready'
   const connectionFailed =
@@ -260,7 +271,9 @@ export function AccountConnectionGuide() {
             variant="contained"
             disabled={completion.busy}
             onClick={() => {
-              void finish(() => completeConnectionGuide(state.attempt_id))
+              void finish(() =>
+                finishConnectionGuide(state.attempt_id, state.mode),
+              )
             }}
           >
             {text('进入 IKUN', 'Open IKUN')}

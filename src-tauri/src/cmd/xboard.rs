@@ -74,8 +74,8 @@ pub async fn xboard_copy_telegram_binding() -> CmdResult {
 
 #[tauri::command]
 #[specta::specta]
-pub fn xboard_guide_snapshot() -> CmdResult<XboardGuideSnapshot> {
-    Ok(xboard::guide::snapshot())
+pub fn xboard_guide_snapshot() -> XboardGuideSnapshot {
+    xboard::guide::snapshot()
 }
 
 #[tauri::command]
