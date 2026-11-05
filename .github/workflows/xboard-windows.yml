@@ -1,0 +1,144 @@
+name: Xboard Windows x64
+
+on:
+  push:
+    branches: [feat/xboard-windows-preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xboard-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: app
+    env:
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: short
+      NODE_OPTIONS: --max-old-space-size=4096
+      XBOARD_SERVICE_SOURCE: ${{ github.workspace }}/service
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: app
+          fetch-depth: 0
+
+      - name: Checkout matching Xboard service
+        uses: actions/checkout@v7
+        with:
+          repository: jinshenganyuci/clash-verge-service-ipc
+          ref: db6842cd2a219901b821ddb4d2d57cbe0dd09b02
+          path: service
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26.13.0'
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+          run_install: false
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            app -> target
+            service -> target
+          cache-on-failure: true
+
+      - name: Install locked frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate translations and format changed frontend sources
+        run: |
+          pnpm i18n:types
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @(git diff --name-only --diff-filter=ACMR c83f7ad529c7c9cb3d2d54a0955ef8c1b22a411b -- src | Where-Object { $_ -match '\.(ts|tsx|json|css)$' })
+          if ($files.Count -gt 0) {
+            pnpm exec biome format --write @files
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $scripts = @($files | Where-Object { $_ -match '\.(ts|tsx)$' -and $_ -notmatch '/generated/|/bindings\.ts$' })
+            if ($scripts.Count -gt 0) { pnpm exec eslint --fix @scripts }
+          }
+
+      - name: Frontend lint and tests
+        run: |
+          pnpm lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm arch:check
+
+      - name: Prepare Windows x64 cores and isolated service
+        run: pnpm prebuild x86_64-pc-windows-msvc
+
+      - name: Resolve the pinned Xboard service dependency
+        run: cargo update -p clash_verge_service_ipc
+
+      - name: Format Rust and generate IPC bindings
+        run: |
+          cargo fmt --all
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gen:contract
+
+      - name: Xboard backend tests
+        run: cargo test -p clash-verge --lib xboard --locked
+
+      - name: Build the Windows x64 installer
+        run: pnpm exec tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Verify payload architecture and calculate checksum
+        run: |
+          $payloads = @('target/x86_64-pc-windows-msvc/release/clash-verge-xboard.exe')
+          $payloads += @(Get-ChildItem src-tauri/resources/*service*.exe | ForEach-Object { $_.FullName })
+          $payloads += @(Get-ChildItem src-tauri/sidecar/*x86_64-pc-windows-msvc.exe | ForEach-Object { $_.FullName })
+          foreach ($path in $payloads) {
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $path))
+            $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+            $machine = [BitConverter]::ToUInt16($bytes, $offset + 4)
+            if ($machine -ne 0x8664) { throw "Non-x64 payload: $path" }
+          }
+          $installers = @(Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one installer' }
+          $installer = $installers[0]
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+          "Commit: ${{ github.sha }}" | Set-Content "$($installer.DirectoryName)/build-info.txt"
+          "SHA256: $hash" | Add-Content "$($installer.DirectoryName)/build-info.txt"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Clash-Verge-Xboard-windows-x64
+          path: |
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
+            app/target/x86_64-pc-windows-msvc/release/bundle/nsis/build-info.txt
+          if-no-files-found: error
+
+      - name: Save generated source changes
+        if: always()
+        run: |
+          git diff --binary HEAD --output=ci-generated.patch
+
+      - name: Upload generated source changes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xboard-generated-sources
+          path: app/ci-generated.patch
+          if-no-files-found: ignore
