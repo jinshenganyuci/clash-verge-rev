@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string] $InstallerPath
+    [string] $InstallerPath,
+    [switch] $ExerciseMissingWebView2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +62,36 @@ $sentinelProcesses = @()
 $appProcess = $null
 $createdUpstreamService = $false
 $installed = $false
+$webViewKeys = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+    'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+)
+$webViewCoverage = [ordered]@{
+    requested = [bool]$ExerciseMissingWebView2
+    status = 'not-exercised'
+    reason = 'The missing-runtime scenario was not requested.'
+    before = @()
+    afterUninstall = @()
+    afterInstall = @()
+}
+
+function Get-WebViewClients {
+    foreach ($key in $webViewKeys) {
+        if (Test-Path -LiteralPath $key) {
+            $version = (Get-Item -LiteralPath $key).GetValue('pv')
+            if (-not [string]::IsNullOrEmpty($version)) {
+                [PSCustomObject]@{ Key = $key; Version = [string]$version }
+            }
+        }
+    }
+}
+
+function Write-WebViewCoverage {
+    $webViewCoverage | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $artifacts 'webview2-bootstrap.json')
+    $message = "WebView2 missing-runtime check: $($webViewCoverage.status). $($webViewCoverage.reason)"
+    Write-Host $message
+    if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $message }
+}
 
 function Invoke-BoundedProcess([string] $Path, [string] $Arguments, [int] $TimeoutSeconds = 120) {
     $options = @{ FilePath = $Path; PassThru = $true }
@@ -139,16 +170,87 @@ try {
     foreach ($name in @('verge-mihomo.exe', 'clash-verge-service.exe')) {
         $binary = Join-Path $sentinelRoot $name
         Copy-Item -LiteralPath "$env:SystemRoot\System32\cmd.exe" -Destination $binary
-        $sentinelProcesses += Start-Process -FilePath $binary -ArgumentList '/d /c "ping.exe -n 900 127.0.0.1 >nul"' -WindowStyle Hidden -PassThru
+        $sentinelProcesses += Start-Process -FilePath $binary -ArgumentList '/d /c "ping.exe -n 3600 127.0.0.1 >nul"' -WindowStyle Hidden -PassThru
     }
 
-    $webViewKey = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-    if (-not (Test-Path $webViewKey)) {
-        Write-Host 'WebView2 may be installed by the bundled bootstrapper; allowing up to 10 minutes.'
+    $webViewCoverage.before = @(Get-WebViewClients)
+    if ($ExerciseMissingWebView2 -and $webViewCoverage.before.Count -gt 0) {
+        $uninstallNotes = @()
+        $attempted = $false
+        $runtimeRoots = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\EdgeWebView\Application'),
+            (Join-Path $env:ProgramFiles 'Microsoft\EdgeWebView\Application')
+        ) | Select-Object -Unique
+        foreach ($root in $runtimeRoots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $candidates = @(Get-ChildItem -LiteralPath $root -Directory | Where-Object {
+                $parsed = $null
+                [Version]::TryParse($_.Name, [ref]$parsed)
+            } | Sort-Object { [Version]$_.Name } -Descending)
+            foreach ($directory in $candidates) {
+                $setup = Join-Path $directory.FullName 'Installer\setup.exe'
+                if (-not (Test-Path -LiteralPath $setup)) { continue }
+                $attempted = $true
+                try {
+                    # Microsoft Intune documents this version-specific Runtime uninstall command:
+                    # https://techcommunity.microsoft.com/blog/intunecustomersuccess/support-tip-bulk-installing-webview2-runtime-on-windows-10-devices/3678202
+                    Invoke-BoundedProcess $setup '--force-uninstall --uninstall --msedgewebview --system-level --verbose-logging' 120
+                } catch {
+                    $uninstallNotes += $_.Exception.Message
+                }
+                break
+            }
+        }
+        for ($attempt = 0; $attempt -lt 20 -and @(Get-WebViewClients).Count -gt 0; $attempt++) {
+            Start-Sleep -Milliseconds 500
+        }
+        $webViewCoverage.afterUninstall = @(Get-WebViewClients)
+        if ($webViewCoverage.afterUninstall.Count -gt 0) {
+            $webViewCoverage.reason = if (-not $attempted) {
+                'No system Runtime setup.exe was available; preinstalled WebView2 remains. No registry values or runtime files were removed manually.'
+            } else {
+                'The official uninstall command did not remove all HKLM/HKCU client pv values (the runtime may be protected, in use, or per-user). ' + ($uninstallNotes -join ' ')
+            }
+            Write-Warning $webViewCoverage.reason
+        }
+    } else {
+        $webViewCoverage.afterUninstall = @(Get-WebViewClients)
     }
+    $bootstrapExpected = $webViewCoverage.afterUninstall.Count -eq 0
+    if ($bootstrapExpected) {
+        $webViewCoverage.status = 'pending'
+        $webViewCoverage.reason = 'Both HKLM/HKCU client pv values are absent or empty; NSIS must install WebView2.'
+    }
+    Write-WebViewCoverage
     # /D and _?= are NSIS remainder arguments and must be last, without surrounding quotes.
-    Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 600
+    try {
+        Invoke-BoundedProcess $InstallerPath "/S /D=$installRoot" 600
+    } catch {
+        if ($bootstrapExpected) {
+            $webViewCoverage.status = 'failed'
+            $webViewCoverage.reason = 'NSIS failed while exercising the missing-runtime path: ' + $_.Exception.Message
+            $webViewCoverage.afterInstall = @(Get-WebViewClients)
+            Write-WebViewCoverage
+        }
+        throw
+    }
     $installed = $true
+    $webViewCoverage.afterInstall = @(Get-WebViewClients)
+    $validRuntime = @($webViewCoverage.afterInstall | Where-Object {
+        $parsed = $null
+        [Version]::TryParse($_.Version, [ref]$parsed) -and $parsed -gt [Version]'0.0.0.0'
+    })
+    if ($bootstrapExpected -and $validRuntime.Count -eq 0) {
+        $webViewCoverage.status = 'failed'
+        $webViewCoverage.reason = 'NSIS returned without installing a valid WebView2 Runtime.'
+        Write-WebViewCoverage
+        throw $webViewCoverage.reason
+    }
+    if ($bootstrapExpected) {
+        $webViewCoverage.status = 'runtime-restored'
+        $webViewCoverage.reason = 'NSIS restored a valid Runtime after the missing-runtime check; application startup is next.'
+    }
+    Write-WebViewCoverage
     $appBinary = Join-Path $installRoot 'clash-verge-xboard.exe'
     foreach ($file in @($appBinary, (Join-Path $serviceRoot 'cores\verge-mihomo.exe'), (Join-Path $serviceRoot 'cores\verge-mihomo-alpha.exe'))) {
         if (-not (Test-Path -LiteralPath $file)) { throw "Installed payload missing: $file" }
@@ -173,6 +275,11 @@ try {
         }
     }
     if (-not $ready) { throw 'Installed app did not create its own config, window and WebView2 process within 60 seconds.' }
+    if ($bootstrapExpected) {
+        $webViewCoverage.status = 'passed'
+        $webViewCoverage.reason = 'Real Runtime removal/absence, NSIS bootstrap installation, and the installed application WebView2 startup were exercised.'
+        Write-WebViewCoverage
+    }
     try {
         Add-Type -AssemblyName System.Drawing, System.Windows.Forms
         Add-Type -TypeDefinition @'

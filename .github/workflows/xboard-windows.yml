@@ -75,11 +75,19 @@ jobs:
             if ($scripts.Count -gt 0) { pnpm exec eslint --fix @scripts }
           }
 
+      - name: Frontend lint and tests
+        run: |
+          pnpm lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm arch:check
+
       - name: Prepare Windows x64 cores and isolated service
         run: pnpm prebuild x86_64-pc-windows-msvc
 
       - name: Verify isolated service channel
-        run: cargo test --manifest-path ../service/Cargo.toml --locked --release --features standalone,client,xboard-channel --lib channel::tests
+        run: cargo test --manifest-path ../service/Cargo.toml --locked --release --target x86_64-pc-windows-msvc --features standalone,client,xboard-channel --lib channel::tests
 
       - name: Resolve the pinned Xboard service dependency
         run: cargo update -p clash_verge_service_ipc
@@ -91,14 +99,6 @@ jobs:
           cargo fmt --all
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm gen:contract
-
-      - name: Frontend lint and tests
-        run: |
-          pnpm lint
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm arch:check
 
       - name: Xboard backend tests
         run: cargo test -p clash-verge --lib xboard --locked --features clippy
@@ -126,11 +126,11 @@ jobs:
           "SHA256: $hash" | Add-Content "$($installer.DirectoryName)/build-info.txt"
 
       - name: Smoke test isolated Windows installation
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           $installer = @(Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
           if ($installer.Count -ne 1) { throw 'Expected exactly one x64 installer' }
-          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName
+          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName -ExerciseMissingWebView2
 
       - name: Upload installation smoke logs
         if: always()

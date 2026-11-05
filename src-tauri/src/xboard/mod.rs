@@ -190,6 +190,7 @@ impl State {
     }
 
     async fn sync_inner(&mut self, force: bool, activate: bool) -> Result<()> {
+        managed::retry_pending_stop().await?;
         if self.binding.is_none() {
             let persisted = if self.pending_secret_clear { store::clear().await } else { Ok(()) };
             self.pending_secret_clear = persisted.is_err();

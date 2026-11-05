@@ -9,6 +9,23 @@ use std::{num::NonZeroUsize, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tokio::fs;
 
 pub const FILE_PREFIX: &str = "xboard-account-";
+static PENDING_STOP: parking_lot::Mutex<Option<StopTarget>> = parking_lot::Mutex::new(None);
+
+#[derive(Clone, Copy)]
+struct StopTarget {
+    generation: Option<u64>,
+    managed_current: bool,
+}
+
+impl StopTarget {
+    fn still_owned(self, generation: Option<u64>, current: Option<&str>) -> bool {
+        if self.managed_current {
+            current == Some(MANAGED_UID)
+        } else {
+            current.is_none() && self.generation == generation
+        }
+    }
+}
 
 pub fn revoked_configuration(text: &str) -> Result<bool> {
     let mapping: Mapping = serde_yaml_ng::from_str(text.trim_start_matches('\u{feff}'))
@@ -53,6 +70,7 @@ async fn cleanup_files(keep: Option<&std::path::Path>) -> Result<()> {
 }
 
 pub async fn install(text: &str, subscription: &XboardSubscription, activate: bool) -> Result<()> {
+    retry_pending_stop().await?;
     if revoked_configuration(text)? { return Err(Error::unavailable()); }
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Error::storage())?.as_nanos();
     let filename = format!("{FILE_PREFIX}{stamp}.yaml");
@@ -119,6 +137,7 @@ pub async fn install(text: &str, subscription: &XboardSubscription, activate: bo
 }
 
 pub async fn remove() -> Result<()> {
+    retry_pending_stop().await?;
     let _write = PROFILE_WRITE_LOCK.lock().await;
     let profiles = Config::profiles().await;
     let result = profiles.with_data_modify(|mut candidate| async move {
@@ -136,7 +155,7 @@ pub async fn remove() -> Result<()> {
             None
         };
         // Configuration is committed even if stopping the OS proxy subsequently fails.
-        let stopped = if active { CoreManager::global().stop_core().await.is_ok() } else { true };
+        let stopped = if active { stop_owned(false).await } else { true };
         Ok((candidate, (guard, stopped)))
     }).await;
     let result = match result {
@@ -159,24 +178,48 @@ pub async fn remove() -> Result<()> {
 }
 
 async fn stop_failed_removal() -> Result<()> {
+    *PENDING_STOP.lock() = Some(StopTarget {
+        generation: CoreManager::global().current_core_readiness_generation(),
+        managed_current: true,
+    });
+    retry_pending_stop().await
+}
+
+async fn stop_owned(managed_current: bool) -> bool {
+    let manager = CoreManager::global();
+    let target = StopTarget { generation: manager.current_core_readiness_generation(), managed_current };
+    let _ = Handle::mihomo().close_all_connections().await;
+    let stopped = retry(
+        RetryPolicy::fixed(NonZeroUsize::MIN.saturating_add(2), Duration::from_millis(250)),
+        |_| async { manager.stop_core().await.map_err(RetryError::Retry) },
+    ).await.is_ok();
+    *PENDING_STOP.lock() = if stopped { None } else { Some(target) };
+    stopped
+}
+
+pub async fn retry_pending_stop() -> Result<()> {
+    let target = *PENDING_STOP.lock();
+    let Some(target) = target else { return Ok(()); };
     let manager = CoreManager::global();
     let result = retry(
         RetryPolicy::fixed(NonZeroUsize::MIN.saturating_add(19), Duration::from_millis(250)),
         |_| async {
-            let config_write = Config::lock_config_write().await;
+            let config_write = tokio::time::timeout(Duration::from_millis(500), Config::lock_config_write())
+                .await.map_err(|_| RetryError::Retry(anyhow::anyhow!("Configuration ownership is busy")))?;
             let update = manager.claim_config_update(&config_write).map_err(RetryError::Retry)?;
-            if Config::profiles().await.latest_arc().current.as_deref() == Some(MANAGED_UID) {
-                manager.stop_core().await.map_err(RetryError::Stop)?;
+            let profiles = Config::profiles().await.latest_arc();
+            let owned = target.still_owned(manager.current_core_readiness_generation(), profiles.current.as_deref());
+            drop(profiles);
+            if !owned {
+                *PENDING_STOP.lock() = None;
+            } else if !stop_owned(target.managed_current).await {
+                return Err(RetryError::Stop(anyhow::anyhow!("Account proxy stop failed")));
             }
             drop(update);
             Ok(())
         },
     ).await;
     if result.is_err() {
-        // A busy or failing service must not prevent the final attempt to release the OS proxy.
-        if Config::profiles().await.latest_arc().current.as_deref() == Some(MANAGED_UID) {
-            let _ = manager.stop_core().await;
-        }
         return Err(Error::new("XBOARD_PROXY_STOP_FAILED", "The account proxy could not be confirmed stopped. Please disable the system proxy and retry sign-out."));
     }
     Ok(())
@@ -193,5 +236,17 @@ mod tests {
         assert!(!revoked_configuration("proxies: [{name: test}]\nrules: ['MATCH,REJECT']").unwrap());
         assert!(revoked_configuration("proxies: [").is_err());
         assert!(revoked_configuration("proxies: []\nrules: ['MATCH,DIRECT']").is_err());
+    }
+
+    #[test]
+    fn pending_stop_does_not_target_a_new_manual_runtime() {
+        let removed = StopTarget { generation: Some(7), managed_current: false };
+        assert!(removed.still_owned(Some(7), None));
+        assert!(!removed.still_owned(Some(8), None));
+        assert!(!removed.still_owned(Some(7), Some("manual")));
+        let blocked_removal = StopTarget { generation: Some(7), managed_current: true };
+        assert!(blocked_removal.still_owned(Some(8), Some(MANAGED_UID)));
+        assert!(!blocked_removal.still_owned(Some(7), Some("manual")));
+        assert!(!blocked_removal.still_owned(Some(7), None));
     }
 }
