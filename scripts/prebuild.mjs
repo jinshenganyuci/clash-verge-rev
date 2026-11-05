@@ -600,14 +600,18 @@ async function resolveServiceBundle() {
     )
   }
   if (xboardChannel) {
-    const expectedRevision = serviceDependency?.match(/\brev\s*=\s*"([^"]+)"/)?.[1]
+    const expectedRevision = serviceDependency?.match(
+      /\brev\s*=\s*"([^"]+)"/,
+    )?.[1]
     const sourceRevision = execFileSync(
       'git',
       ['-C', xboardSource, 'rev-parse', 'HEAD'],
       { encoding: 'utf8' },
     ).trim()
     if (!expectedRevision || sourceRevision !== expectedRevision) {
-      throw new Error('Xboard service checkout does not match the Cargo revision')
+      throw new Error(
+        'Xboard service checkout does not match the Cargo revision',
+      )
     }
     const changes = execFileSync(
       'git',
@@ -634,7 +638,9 @@ async function resolveServiceBundle() {
         SIDECAR_HOST,
         '--release',
         '--features',
-        xboardChannel ? 'standalone,client,xboard-channel' : 'standalone,client',
+        xboardChannel
+          ? 'standalone,client,xboard-channel'
+          : 'standalone,client',
         '--bins',
       ],
       { stdio: 'inherit' },

@@ -92,7 +92,7 @@ pub async fn install(text: &str, subscription: &XboardSubscription, activate: bo
         item.itype = Some("local".into());
         item.name = Some("IKUN subscription".into());
         item.desc = Some("Managed by your IKUN account".into());
-        item.file = Some(filename);
+        item.file = Some(filename.into());
         item.url = None;
         item.option = Some(PrfOption { allow_auto_update: Some(false), ..Default::default() });
         item.updated = Some(super::now() as usize);

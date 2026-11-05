@@ -6,7 +6,10 @@ pub mod notification;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
 pub enum NoticeStatus {
-    #[allow(dead_code, reason = "Keep the notification wire format when application updates are disabled.")]
+    #[allow(
+        dead_code,
+        reason = "Keep the notification wire format when application updates are disabled."
+    )]
     #[serde(rename = "info")]
     Info,
     #[serde(rename = "import_sub_url::ok")]

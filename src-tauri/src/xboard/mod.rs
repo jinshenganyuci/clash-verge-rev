@@ -7,7 +7,14 @@ pub use managed::FILE_PREFIX as MANAGED_FILE_PREFIX;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{fmt, sync::{LazyLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{
+    fmt,
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tokio::sync::Mutex;
 
@@ -23,16 +30,42 @@ pub struct Error {
 }
 
 impl Error {
-    const fn new(code: &'static str, message: &'static str) -> Self { Self { code, message } }
-    const fn network() -> Self { Self::new("XBOARD_NETWORK_FAILED", "The account service could not be reached. Please try again.") }
-    const fn storage() -> Self { Self::new("XBOARD_STORAGE_FAILED", "The encrypted account data could not be read or saved on this Windows account.") }
-    const fn invalid_response() -> Self { Self::new("XBOARD_INVALID_RESPONSE", "The account service returned an invalid response.") }
-    const fn session_expired() -> Self { Self::new("XBOARD_SESSION_EXPIRED", "Your session expired. Please sign in again.") }
-    const fn unavailable() -> Self { Self::new("XBOARD_SUBSCRIPTION_UNAVAILABLE", "No subscription nodes are currently available.") }
+    const fn new(code: &'static str, message: &'static str) -> Self {
+        Self { code, message }
+    }
+    const fn network() -> Self {
+        Self::new(
+            "XBOARD_NETWORK_FAILED",
+            "The account service could not be reached. Please try again.",
+        )
+    }
+    const fn storage() -> Self {
+        Self::new(
+            "XBOARD_STORAGE_FAILED",
+            "The encrypted account data could not be read or saved on this Windows account.",
+        )
+    }
+    const fn invalid_response() -> Self {
+        Self::new(
+            "XBOARD_INVALID_RESPONSE",
+            "The account service returned an invalid response.",
+        )
+    }
+    const fn session_expired() -> Self {
+        Self::new("XBOARD_SESSION_EXPIRED", "Your session expired. Please sign in again.")
+    }
+    const fn unavailable() -> Self {
+        Self::new(
+            "XBOARD_SUBSCRIPTION_UNAVAILABLE",
+            "No subscription nodes are currently available.",
+        )
+    }
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result { formatter.write_str(self.message) }
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.message)
+    }
 }
 impl std::error::Error for Error {}
 
@@ -89,8 +122,16 @@ pub struct XboardRegistrationPolicy {
     pub terms_url: Option<String>,
 }
 
+// Follow the shared IPC JSON representation rather than exporting serde_json's internal type graph.
+#[derive(Deserialize, specta::Type)]
+#[serde(transparent)]
+pub struct XboardRequestParams(
+    #[specta(type = std::collections::HashMap<String, crate::ipc::JsonValue>)] pub Value,
+);
+
 #[derive(Serialize, specta::Type)]
 pub struct XboardBusinessResponse {
+    #[specta(type = crate::ipc::JsonValue)]
     pub data: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
@@ -124,7 +165,9 @@ struct State {
     pending_secret_clear: bool,
 }
 
-fn now() -> u64 { chrono::Utc::now().timestamp().max(0) as u64 }
+fn now() -> u64 {
+    chrono::Utc::now().timestamp().max(0) as u64
+}
 
 impl State {
     async fn load(&mut self) -> Result<()> {
@@ -132,10 +175,13 @@ impl State {
             self.onboarding_complete = store::onboarding_complete().await?;
             match store::read().await {
                 Ok(binding) => self.binding = binding,
-                Err(error) => { self.error = Some(error.to_string()); }
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                }
             }
             self.loaded = true;
-            if self.binding.is_none() && managed::exists().await
+            if self.binding.is_none()
+                && managed::exists().await
                 && let Err(error) = managed::remove().await
             {
                 self.error = Some(error.to_string());
@@ -151,7 +197,10 @@ impl State {
             email: self.binding.as_ref().map(|binding| binding.email.clone()),
             profile_uid: self.binding.as_ref().and_then(|binding| binding.profile_uid.clone()),
             last_sync: self.binding.as_ref().and_then(|binding| binding.last_sync),
-            subscription: self.binding.as_ref().and_then(|binding| binding.subscription.as_ref().map(|record| record.summary.clone())),
+            subscription: self
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.subscription.as_ref().map(|record| record.summary.clone())),
             error: self.error.clone(),
         }
     }
@@ -185,7 +234,9 @@ impl State {
             let exists = managed::exists().await;
             if let Some(binding) = self.binding.as_mut() {
                 binding.profile_uid = exists.then(|| MANAGED_UID.into());
-                if !exists { binding.last_sync = None; }
+                if !exists {
+                    binding.last_sync = None;
+                }
             }
         }
         result
@@ -194,20 +245,35 @@ impl State {
     async fn sync_inner(&mut self, force: bool, activate: bool) -> Result<()> {
         managed::retry_pending_stop().await?;
         if self.binding.is_none() {
-            let persisted = if self.pending_secret_clear { store::clear().await } else { Ok(()) };
+            let persisted = if self.pending_secret_clear {
+                store::clear().await
+            } else {
+                Ok(())
+            };
             self.pending_secret_clear = persisted.is_err();
-            let removal = if managed::exists().await { managed::remove().await } else { Ok(()) };
+            let removal = if managed::exists().await {
+                managed::remove().await
+            } else {
+                Ok(())
+            };
             removal.and(persisted)?;
             self.error = None;
             return Ok(());
         }
-        if !force && self.last_checked.is_some_and(|last| last.elapsed() < Duration::from_secs(300)) { return Ok(()); }
+        if !force
+            && self
+                .last_checked
+                .is_some_and(|last| last.elapsed() < Duration::from_secs(300))
+        {
+            return Ok(());
+        }
         self.last_checked = Some(std::time::Instant::now());
         let subscription = self.fetch_subscription().await?;
         let mut binding = self.binding.clone().ok_or_else(Error::session_expired)?;
         let previous = binding.subscription.as_ref();
         let changed = previous.is_none_or(|previous| {
-            previous.url != subscription.url || previous.summary.plan_id != subscription.summary.plan_id
+            previous.url != subscription.url
+                || previous.summary.plan_id != subscription.summary.plan_id
                 || previous.summary.expired_at != subscription.summary.expired_at
         });
         binding.subscription = Some(subscription.clone());
@@ -220,7 +286,11 @@ impl State {
             managed::remove().await?;
             binding.profile_uid = None;
             binding.last_sync = None;
-        } else if force || changed || !managed::exists().await || binding.last_sync.is_none_or(|last| now().saturating_sub(last) >= 3600) {
+        } else if force
+            || changed
+            || !managed::exists().await
+            || binding.last_sync.is_none_or(|last| now().saturating_sub(last) >= 3600)
+        {
             let result = match api::download(&subscription.url).await {
                 Ok(text) => managed::install(&text, &subscription.summary, activate).await,
                 Err(error) => Err(error),
@@ -247,7 +317,11 @@ impl State {
     }
 }
 
-fn number(value: &Value) -> Option<u64> { value.as_u64().or_else(|| value.as_str().and_then(|value| value.parse().ok())) }
+fn number(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+}
 
 fn parse_subscription(value: &Value) -> Result<SubscriptionRecord> {
     if value.get("plan_id").is_none() || value.get("expired_at").is_none() {
@@ -257,9 +331,17 @@ fn parse_subscription(value: &Value) -> Result<SubscriptionRecord> {
     api::subscription_url(raw_url)?;
     Ok(SubscriptionRecord {
         summary: XboardSubscription {
-            plan_id: if value["plan_id"].is_null() { None } else { Some(number(&value["plan_id"]).ok_or_else(Error::invalid_response)?) },
+            plan_id: if value["plan_id"].is_null() {
+                None
+            } else {
+                Some(number(&value["plan_id"]).ok_or_else(Error::invalid_response)?)
+            },
             plan_name: value["plan"]["name"].as_str().map(str::to_owned),
-            expired_at: if value["expired_at"].is_null() { None } else { Some(number(&value["expired_at"]).ok_or_else(Error::invalid_response)?) },
+            expired_at: if value["expired_at"].is_null() {
+                None
+            } else {
+                Some(number(&value["expired_at"]).ok_or_else(Error::invalid_response)?)
+            },
             upload: number(&value["u"]).ok_or_else(Error::invalid_response)?,
             download: number(&value["d"]).ok_or_else(Error::invalid_response)?,
             total: number(&value["transfer_enable"]).ok_or_else(Error::invalid_response)?,
@@ -279,12 +361,25 @@ async fn sign_in(email: String, password: String, registration: Option<(String, 
     let mut state = STATE.lock().await;
     state.load().await?;
     let email = email.trim().to_lowercase();
-    let bearer = api::authenticate(&email, &password, registration.as_ref().map(|(code, invite)| (code.as_str(), invite.as_str()))).await?;
+    let bearer = api::authenticate(
+        &email,
+        &password,
+        registration
+            .as_ref()
+            .map(|(code, invite)| (code.as_str(), invite.as_str())),
+    )
+    .await?;
     let binding = match state.binding.as_ref() {
         Some(old) if old.email.eq_ignore_ascii_case(&email) => Binding { bearer, ..old.clone() },
         _ => {
             managed::remove().await?;
-            Binding { email, bearer, subscription: None, profile_uid: None, last_sync: None }
+            Binding {
+                email,
+                bearer,
+                subscription: None,
+                profile_uid: None,
+                last_sync: None,
+            }
         }
     };
     store::save(&binding).await.map_err(|error| {
@@ -296,14 +391,26 @@ async fn sign_in(email: String, password: String, registration: Option<(String, 
     state.pending_secret_clear = false;
     store::complete_onboarding().await?;
     state.onboarding_complete = true;
-    if let Err(error) = state.sync(true, true).await { state.error = Some(error.to_string()); }
+    if let Err(error) = state.sync(true, true).await {
+        state.error = Some(error.to_string());
+    }
     Ok(state.snapshot())
 }
 
-pub async fn login(email: String, password: String) -> Result<XboardSnapshot> { sign_in(email, password, None).await }
+pub async fn login(email: String, password: String) -> Result<XboardSnapshot> {
+    sign_in(email, password, None).await
+}
 
 pub async fn register(input: XboardRegisterInput) -> Result<XboardSnapshot> {
-    sign_in(input.email, input.password, Some((input.email_code.unwrap_or_default(), input.invite_code.unwrap_or_default()))).await
+    sign_in(
+        input.email,
+        input.password,
+        Some((
+            input.email_code.unwrap_or_default(),
+            input.invite_code.unwrap_or_default(),
+        )),
+    )
+    .await
 }
 
 pub async fn refresh(force: bool) -> Result<XboardSnapshot> {
@@ -335,8 +442,17 @@ pub async fn request(operation: XboardOperation, params: Value) -> Result<Xboard
     let mut state = STATE.lock().await;
     state.load().await?;
     let bearer = if operation.authenticated() {
-        Some(state.binding.as_ref().ok_or_else(Error::session_expired)?.bearer.clone())
-    } else { None };
+        Some(
+            state
+                .binding
+                .as_ref()
+                .ok_or_else(Error::session_expired)?
+                .bearer
+                .clone(),
+        )
+    } else {
+        None
+    };
     let response = api::operation(operation, bearer.as_deref(), params).await;
     let mut response = match response {
         Ok(value) => value,
@@ -367,18 +483,33 @@ fn policy_flag(value: &Value) -> Result<bool> {
 }
 
 fn parse_registration_policy(value: &Value) -> Result<XboardRegistrationPolicy> {
-    let terms_url = value["tos_url"].as_str().filter(|url| !url.trim().is_empty()).and_then(|raw| {
-        let base = tauri::Url::parse("https://ikun.iil.im/").ok()?;
-        let url = base.join(raw).ok()?;
-        (url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()).then(|| url.to_string())
-    });
+    let terms_url = value["tos_url"]
+        .as_str()
+        .filter(|url| !url.trim().is_empty())
+        .and_then(|raw| {
+            let base = tauri::Url::parse("https://ikun.iil.im/").ok()?;
+            let url = base.join(raw).ok()?;
+            (url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none())
+            .then(|| url.to_string())
+        });
     Ok(XboardRegistrationPolicy {
-        email_verification_required: policy_flag(&value["is_email_verify"] )?,
-        invite_required: policy_flag(&value["is_invite_force"] )?,
+        email_verification_required: policy_flag(&value["is_email_verify"])?,
+        invite_required: policy_flag(&value["is_invite_force"])?,
         captcha_required: policy_flag(value.get("is_captcha").unwrap_or(&value["is_recaptcha"]))?,
-        email_domains: value["email_whitelist_suffix"].as_array().map(|domains| {
-            domains.iter().filter_map(Value::as_str).map(|domain| domain.trim().to_lowercase()).filter(|domain| !domain.is_empty()).collect()
-        }).unwrap_or_default(),
+        email_domains: value["email_whitelist_suffix"]
+            .as_array()
+            .map(|domains| {
+                domains
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|domain| domain.trim().to_lowercase())
+                    .filter(|domain| !domain.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
         terms_url,
     })
 }
@@ -395,17 +526,27 @@ pub async fn copy_subscription(telegram: bool) -> Result<()> {
     if record.summary.plan_id.is_none() || record.summary.expired_at.is_some_and(|expiry| expiry <= now()) {
         return Err(Error::unavailable());
     }
-    let text = if telegram { format!("/bind {}", record.url) } else { record.url };
-    crate::core::handle::Handle::app_handle().clipboard().write_text(text)
+    let text = if telegram {
+        format!("/bind {}", record.url)
+    } else {
+        record.url
+    };
+    crate::core::handle::Handle::app_handle()
+        .clipboard()
+        .write_text(text)
         .map_err(|_| Error::new("XBOARD_CLIPBOARD_FAILED", "The subscription could not be copied."))
 }
 
 pub fn start_background() {
-    if STARTED.swap(true, Ordering::AcqRel) { return; }
+    if STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
     crate::process::AsyncHandler::spawn(|| async {
         tokio::time::sleep(Duration::from_secs(15)).await;
         loop {
-            if crate::core::handle::Handle::global().is_exiting() { break; }
+            if crate::core::handle::Handle::global().is_exiting() {
+                break;
+            }
             let _ = refresh(false).await;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
@@ -414,7 +555,10 @@ pub fn start_background() {
 
 pub fn protect_managed(uid: &str) -> crate::cmd::CmdResult {
     if uid == MANAGED_UID {
-        return Err(crate::cmd::coded_error("XBOARD_MANAGED_PROFILE", "Manage this subscription from the account page."));
+        return Err(crate::cmd::coded_error(
+            "XBOARD_MANAGED_PROFILE",
+            "Manage this subscription from the account page.",
+        ));
     }
     Ok(())
 }
@@ -425,10 +569,21 @@ mod tests {
 
     #[test]
     fn snapshot_does_not_expose_credentials_and_zero_traffic_is_not_expiry() -> anyhow::Result<()> {
-        let record = parse_subscription(&json!({"plan_id":1,"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"}))?;
+        let record = parse_subscription(
+            &json!({"plan_id":1,"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"}),
+        )?;
         assert!(record.summary.plan_id.is_some());
         assert!(record.summary.expired_at.is_none());
-        let state = State { binding: Some(Binding { email:"user@example.com".into(),bearer:"Bearer secret".into(),subscription:Some(record),profile_uid:None,last_sync:None }), ..Default::default() };
+        let state = State {
+            binding: Some(Binding {
+                email: "user@example.com".into(),
+                bearer: "Bearer secret".into(),
+                subscription: Some(record),
+                profile_uid: None,
+                last_sync: None,
+            }),
+            ..Default::default()
+        };
         let wire = serde_json::to_string(&state.snapshot())?;
         assert!(!wire.contains("Bearer"));
         assert!(!wire.contains("/s/private"));
@@ -477,8 +632,8 @@ mod tests {
 
     #[test]
     fn malformed_subscription_metadata_cannot_revoke_a_working_profile() {
-        let malformed = json!({"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"});
+        let malformed =
+            json!({"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"});
         assert!(parse_subscription(&malformed).is_err());
     }
-
 }

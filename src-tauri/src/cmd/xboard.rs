@@ -1,6 +1,7 @@
 use super::{CmdResult, coded_error};
 use crate::xboard::{
-    self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy, XboardSnapshot,
+    self, XboardBusinessResponse, XboardOperation, XboardRegisterInput, XboardRegistrationPolicy,
+    XboardRequestParams, XboardSnapshot,
 };
 
 fn failure(error: xboard::Error) -> super::CommandFailure {
@@ -41,9 +42,9 @@ pub async fn xboard_refresh(force: bool) -> CmdResult<XboardSnapshot> {
 #[specta::specta]
 pub async fn xboard_request(
     operation: XboardOperation,
-    params: serde_json::Value,
+    params: XboardRequestParams,
 ) -> CmdResult<XboardBusinessResponse> {
-    xboard::request(operation, params).await.map_err(failure)
+    xboard::request(operation, params.0).await.map_err(failure)
 }
 
 #[tauri::command]

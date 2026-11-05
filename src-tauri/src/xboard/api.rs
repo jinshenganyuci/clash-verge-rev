@@ -56,7 +56,11 @@ impl XboardOperation {
             Self::InviteSave => ("user/invite/save", Method::GET, &[]),
             Self::InviteDetails => ("user/invite/details", Method::GET, &["current", "page_size"]),
             Self::Transfer => ("user/transfer", Method::POST, &["transfer_amount"]),
-            Self::Withdraw => ("user/ticket/withdraw", Method::POST, &["withdraw_method", "withdraw_account"]),
+            Self::Withdraw => (
+                "user/ticket/withdraw",
+                Method::POST,
+                &["withdraw_method", "withdraw_account"],
+            ),
             Self::UserInfo => ("user/info", Method::GET, &[]),
             Self::UserConfig => ("user/comm/config", Method::GET, &[]),
             Self::UserUpdate => ("user/update", Method::POST, &["remind_expire", "remind_traffic"]),
@@ -106,10 +110,16 @@ fn decode(status: StatusCode, bytes: &[u8], authenticated: bool) -> Result<Value
         return Err(Error::session_expired());
     }
     if status == StatusCode::TOO_MANY_REQUESTS {
-        return Err(Error::new("XBOARD_RATE_LIMITED", "Too many requests. Please try again later."));
+        return Err(Error::new(
+            "XBOARD_RATE_LIMITED",
+            "Too many requests. Please try again later.",
+        ));
     }
     if status.is_server_error() {
-        return Err(Error::new("XBOARD_SERVICE_FAILED", "The account service is temporarily unavailable."));
+        return Err(Error::new(
+            "XBOARD_SERVICE_FAILED",
+            "The account service is temporarily unavailable.",
+        ));
     }
     if !status.is_success() || value["status"] == "fail" || value["data"] == false {
         let message = match value["message"].as_str() {
@@ -118,8 +128,12 @@ fn decode(status: StatusCode, bytes: &[u8], authenticated: bool) -> Result<Value
             Some("Your account has been suspended") => "This account is suspended.",
             Some("Incorrect email verification code") => "The email verification code is incorrect or expired.",
             Some("Registration has closed") => "Registration is closed.",
-            Some("Invalid invitation code" | "You must use the invitation code to register") => "A valid invitation code is required.",
-            Some("Email verification code has been sent, please request again later") => "A verification code was already sent. Please wait before requesting another.",
+            Some("Invalid invitation code" | "You must use the invitation code to register") => {
+                "A valid invitation code is required."
+            }
+            Some("Email verification code has been sent, please request again later") => {
+                "A verification code was already sent. Please wait before requesting another."
+            }
             Some("The old password is wrong") => "The current password is incorrect.",
             Some("Insufficient commission balance") => "The commission balance is insufficient.",
             _ => "The account service declined this request. Check the information and try again.",
@@ -147,9 +161,15 @@ async fn request_at(base: &str, path: &str, method: Method, bearer: Option<&str>
     if method == Method::POST {
         request = request.json(&params);
     } else if let Some(params) = params.as_object() {
-        let pairs: Vec<_> = params.iter().map(|(key, value)| {
-            (key, value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
-        }).collect();
+        let pairs: Vec<_> = params
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key,
+                    value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()),
+                )
+            })
+            .collect();
         request = request.query(&pairs);
     }
     let response = request.send().await.map_err(|_| Error::network())?;
@@ -159,12 +179,19 @@ async fn request_at(base: &str, path: &str, method: Method, bearer: Option<&str>
 
 pub async fn authenticate(email: &str, password: &str, registration: Option<(&str, &str)>) -> Result<String> {
     if email.len() > 254 || !email.contains('@') || password.len() < 8 || password.len() > 1024 {
-        return Err(Error::new("XBOARD_INVALID_INPUT", "Enter a valid email and a password of at least eight characters."));
+        return Err(Error::new(
+            "XBOARD_INVALID_INPUT",
+            "Enter a valid email and a password of at least eight characters.",
+        ));
     }
     let mut params = json!({"email": email.trim(), "password": password});
     let path = if let Some((code, invite)) = registration {
-        if !code.is_empty() { params["email_code"] = json!(code); }
-        if !invite.is_empty() { params["invite_code"] = json!(invite); }
+        if !code.is_empty() {
+            params["email_code"] = json!(code);
+        }
+        if !invite.is_empty() {
+            params["invite_code"] = json!(invite);
+        }
         "passport/auth/register"
     } else {
         "passport/auth/login"
@@ -174,9 +201,16 @@ pub async fn authenticate(email: &str, password: &str, registration: Option<(&st
             Error::new("XBOARD_REGISTRATION_UNCERTAIN", "Registration could not be confirmed. The account may already exist. Try signing in before registering again.")
         } else { error }
     })?;
-    let bearer = response["data"]["auth_data"].as_str().ok_or_else(Error::invalid_response)?;
+    let bearer = response["data"]["auth_data"]
+        .as_str()
+        .ok_or_else(Error::invalid_response)?;
     let token = bearer.strip_prefix("Bearer ").ok_or_else(Error::invalid_response)?;
-    if token.is_empty() || token.len() > 4096 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b"._~+/=-".contains(&b)) {
+    if token.is_empty()
+        || token.len() > 4096
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._~+/=-".contains(&b))
+    {
         return Err(Error::invalid_response());
     }
     Ok(bearer.to_owned())
@@ -189,7 +223,9 @@ pub async fn subscription(bearer: &str) -> Result<Value> {
 
 fn checked_params(operation: XboardOperation, params: Value) -> Result<Value> {
     let (_, _, allowed) = operation.route();
-    let object = params.as_object().ok_or_else(|| Error::new("XBOARD_INVALID_INPUT", "Invalid request parameters."))?;
+    let object = params
+        .as_object()
+        .ok_or_else(|| Error::new("XBOARD_INVALID_INPUT", "Invalid request parameters."))?;
     if object.iter().any(|(key, value)| {
         !allowed.contains(&key.as_str())
             || !(value.is_string() || value.is_boolean() || value.is_number())
@@ -208,26 +244,39 @@ async fn operation_at(base: &str, operation: XboardOperation, bearer: Option<&st
     let params = checked_params(operation, params)?;
     let bearer = if operation.authenticated() {
         Some(bearer.ok_or_else(Error::session_expired)?)
-    } else { None };
+    } else {
+        None
+    };
     let (path, method, _) = operation.route();
     request_at(base, path, method, bearer, params).await
 }
 
 pub fn subscription_url(raw: &str) -> Result<tauri::Url> {
     let mut url = tauri::Url::parse(raw).map_err(|_| Error::invalid_response())?;
-    if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty()
-        || url.password().is_some() || url.fragment().is_some()
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
     {
         return Err(Error::invalid_response());
     }
-    let pairs: Vec<_> = url.query_pairs().filter(|(key, _)| key != "flag").map(|(k,v)| (k.into_owned(),v.into_owned())).collect();
+    let pairs: Vec<_> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "flag")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
     url.set_query(None);
     url.query_pairs_mut().extend_pairs(pairs).append_pair("flag", "mihomo");
     Ok(url)
 }
 
 pub async fn download(raw: &str) -> Result<String> {
-    let response = client()?.get(subscription_url(raw)?).send().await.map_err(|_| Error::network())?;
+    let response = client()?
+        .get(subscription_url(raw)?)
+        .send()
+        .await
+        .map_err(|_| Error::network())?;
     if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
         return Err(Error::unavailable());
     }
@@ -240,8 +289,12 @@ pub async fn download(raw: &str) -> Result<String> {
 pub fn redact(value: &mut Value) {
     match value {
         Value::Object(object) => {
-            for key in ["auth_data", "token", "subscribe_url", "password", "uuid"] { object.remove(key); }
-            for child in object.values_mut() { redact(child); }
+            for key in ["auth_data", "token", "subscribe_url", "password", "uuid"] {
+                object.remove(key);
+            }
+            for child in object.values_mut() {
+                redact(child);
+            }
         }
         Value::Array(array) => array.iter_mut().for_each(redact),
         _ => {}
@@ -254,8 +307,16 @@ mod tests {
 
     #[test]
     fn forbidden_business_errors_do_not_expire_sessions() {
-        assert!(is_session_expired(StatusCode::FORBIDDEN, &json!({"status":"fail", "message":"未登录或登陆已过期"}), true));
-        assert!(!is_session_expired(StatusCode::FORBIDDEN, &json!({"status":"fail", "message":"Permission denied"}), true));
+        assert!(is_session_expired(
+            StatusCode::FORBIDDEN,
+            &json!({"status":"fail", "message":"未登录或登陆已过期"}),
+            true
+        ));
+        assert!(!is_session_expired(
+            StatusCode::FORBIDDEN,
+            &json!({"status":"fail", "message":"Permission denied"}),
+            true
+        ));
         assert!(!is_session_expired(StatusCode::FORBIDDEN, &Value::Null, true));
         assert!(!is_session_expired(StatusCode::UNAUTHORIZED, &Value::Null, false));
     }
@@ -263,7 +324,10 @@ mod tests {
     #[test]
     fn subscription_exporter_is_explicit_and_credentials_cannot_change_origin() -> anyhow::Result<()> {
         let url = subscription_url("https://example.com/s/secret?flag=clash&x=1")?;
-        assert_eq!(url.query_pairs().filter(|(key, _)| key == "flag").collect::<Vec<_>>(), vec![("flag".into(), "mihomo".into())]);
+        assert_eq!(
+            url.query_pairs().filter(|(key, _)| key == "flag").collect::<Vec<_>>(),
+            vec![("flag".into(), "mihomo".into())]
+        );
         assert!(subscription_url("http://example.com/s/secret").is_err());
         assert!(subscription_url("https://user:pass@example.com/s/secret").is_err());
         assert!(checked_params(XboardOperation::Tickets, json!({"url":"https://evil.example"})).is_err());
@@ -273,16 +337,49 @@ mod tests {
     #[tokio::test]
     async fn api_mock_preserves_business_errors_and_never_follows_redirects() -> anyhow::Result<()> {
         use warp::Filter as _;
-        let routes = warp::path("business").map(|| warp::reply::with_status(warp::reply::json(&json!({"status":"fail","message":"Permission denied"})), StatusCode::FORBIDDEN))
-            .or(warp::path("expired").map(|| warp::reply::with_status(warp::reply::json(&json!({"status":"fail","message":"未登录或登陆已过期"})), StatusCode::FORBIDDEN)))
-            .or(warp::path("redirect").map(|| warp::redirect::temporary(warp::http::Uri::from_static("http://127.0.0.1:1/should-not-be-requested"))));
+        let routes = warp::path("business")
+            .map(|| {
+                warp::reply::with_status(
+                    warp::reply::json(&json!({"status":"fail","message":"Permission denied"})),
+                    StatusCode::FORBIDDEN,
+                )
+            })
+            .or(warp::path("expired").map(|| {
+                warp::reply::with_status(
+                    warp::reply::json(&json!({"status":"fail","message":"未登录或登陆已过期"})),
+                    StatusCode::FORBIDDEN,
+                )
+            }))
+            .or(warp::path("redirect").map(|| {
+                warp::redirect::temporary(warp::http::Uri::from_static(
+                    "http://127.0.0.1:1/should-not-be-requested",
+                ))
+            }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let server = tokio::spawn(warp::serve(routes).incoming(listener).run());
         let base = format!("http://{address}");
-        assert_eq!(request_at(&base,"business",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_REQUEST_FAILED"));
-        assert_eq!(request_at(&base,"expired",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_SESSION_EXPIRED"));
-        assert_eq!(request_at(&base,"redirect",Method::GET,Some("Bearer test"),json!({})).await.err().map(|error| error.code),Some("XBOARD_REQUEST_FAILED"));
+        assert_eq!(
+            request_at(&base, "business", Method::GET, Some("Bearer test"), json!({}))
+                .await
+                .err()
+                .map(|error| error.code),
+            Some("XBOARD_REQUEST_FAILED")
+        );
+        assert_eq!(
+            request_at(&base, "expired", Method::GET, Some("Bearer test"), json!({}))
+                .await
+                .err()
+                .map(|error| error.code),
+            Some("XBOARD_SESSION_EXPIRED")
+        );
+        assert_eq!(
+            request_at(&base, "redirect", Method::GET, Some("Bearer test"), json!({}))
+                .await
+                .err()
+                .map(|error| error.code),
+            Some("XBOARD_REQUEST_FAILED")
+        );
         server.abort();
         Ok(())
     }
@@ -328,30 +425,115 @@ mod tests {
         let base = format!("http://{}", listener.local_addr()?);
         let server = tokio::spawn(warp::serve(route).incoming(listener).run());
         let cases = [
-            (XboardOperation::RegistrationPolicy, "/guest/comm/config", Method::GET, json!({})),
-            (XboardOperation::SendEmailCode, "/passport/comm/sendEmailVerify", Method::POST, json!({"email":"member@example.com"})),
+            (
+                XboardOperation::RegistrationPolicy,
+                "/guest/comm/config",
+                Method::GET,
+                json!({}),
+            ),
+            (
+                XboardOperation::SendEmailCode,
+                "/passport/comm/sendEmailVerify",
+                Method::POST,
+                json!({"email":"member@example.com"}),
+            ),
             (XboardOperation::Nodes, "/user/server/fetch", Method::GET, json!({})),
-            (XboardOperation::Traffic, "/user/stat/getTrafficLog", Method::GET, json!({})),
-            (XboardOperation::Knowledge, "/user/knowledge/fetch", Method::GET, json!({"language":"zh-CN","keyword":"help"})),
-            (XboardOperation::Knowledge, "/user/knowledge/fetch", Method::GET, json!({"language":"zh-CN","id":7})),
+            (
+                XboardOperation::Traffic,
+                "/user/stat/getTrafficLog",
+                Method::GET,
+                json!({}),
+            ),
+            (
+                XboardOperation::Knowledge,
+                "/user/knowledge/fetch",
+                Method::GET,
+                json!({"language":"zh-CN","keyword":"help"}),
+            ),
+            (
+                XboardOperation::Knowledge,
+                "/user/knowledge/fetch",
+                Method::GET,
+                json!({"language":"zh-CN","id":7}),
+            ),
             (XboardOperation::Tickets, "/user/ticket/fetch", Method::GET, json!({})),
-            (XboardOperation::Tickets, "/user/ticket/fetch", Method::GET, json!({"id":12})),
-            (XboardOperation::TicketSave, "/user/ticket/save", Method::POST, json!({"subject":"Question","level":1,"message":"Please help"})),
-            (XboardOperation::TicketReply, "/user/ticket/reply", Method::POST, json!({"id":12,"message":"Thanks"})),
-            (XboardOperation::TicketClose, "/user/ticket/close", Method::POST, json!({"id":12})),
+            (
+                XboardOperation::Tickets,
+                "/user/ticket/fetch",
+                Method::GET,
+                json!({"id":12}),
+            ),
+            (
+                XboardOperation::TicketSave,
+                "/user/ticket/save",
+                Method::POST,
+                json!({"subject":"Question","level":1,"message":"Please help"}),
+            ),
+            (
+                XboardOperation::TicketReply,
+                "/user/ticket/reply",
+                Method::POST,
+                json!({"id":12,"message":"Thanks"}),
+            ),
+            (
+                XboardOperation::TicketClose,
+                "/user/ticket/close",
+                Method::POST,
+                json!({"id":12}),
+            ),
             (XboardOperation::Orders, "/user/order/fetch", Method::GET, json!({})),
-            (XboardOperation::OrderDetail, "/user/order/detail", Method::GET, json!({"trade_no":"test-2026"})),
+            (
+                XboardOperation::OrderDetail,
+                "/user/order/detail",
+                Method::GET,
+                json!({"trade_no":"test-2026"}),
+            ),
             (XboardOperation::Invites, "/user/invite/fetch", Method::GET, json!({})),
             (XboardOperation::InviteSave, "/user/invite/save", Method::GET, json!({})),
-            (XboardOperation::InviteDetails, "/user/invite/details", Method::GET, json!({"current":2,"page_size":10})),
-            (XboardOperation::Transfer, "/user/transfer", Method::POST, json!({"transfer_amount":12345})),
-            (XboardOperation::Withdraw, "/user/ticket/withdraw", Method::POST, json!({"withdraw_method":"bank","withdraw_account":"test-account"})),
+            (
+                XboardOperation::InviteDetails,
+                "/user/invite/details",
+                Method::GET,
+                json!({"current":2,"page_size":10}),
+            ),
+            (
+                XboardOperation::Transfer,
+                "/user/transfer",
+                Method::POST,
+                json!({"transfer_amount":12345}),
+            ),
+            (
+                XboardOperation::Withdraw,
+                "/user/ticket/withdraw",
+                Method::POST,
+                json!({"withdraw_method":"bank","withdraw_account":"test-account"}),
+            ),
             (XboardOperation::UserInfo, "/user/info", Method::GET, json!({})),
             (XboardOperation::UserConfig, "/user/comm/config", Method::GET, json!({})),
-            (XboardOperation::UserUpdate, "/user/update", Method::POST, json!({"remind_expire":"1","remind_traffic":"0"})),
-            (XboardOperation::ChangePassword, "/user/changePassword", Method::POST, json!({"old_password":"old-password","new_password":"new-password"})),
-            (XboardOperation::ResetSecurity, "/user/resetSecurity", Method::GET, json!({})),
-            (XboardOperation::TelegramBot, "/user/telegram/getBotInfo", Method::GET, json!({})),
+            (
+                XboardOperation::UserUpdate,
+                "/user/update",
+                Method::POST,
+                json!({"remind_expire":"1","remind_traffic":"0"}),
+            ),
+            (
+                XboardOperation::ChangePassword,
+                "/user/changePassword",
+                Method::POST,
+                json!({"old_password":"old-password","new_password":"new-password"}),
+            ),
+            (
+                XboardOperation::ResetSecurity,
+                "/user/resetSecurity",
+                Method::GET,
+                json!({}),
+            ),
+            (
+                XboardOperation::TelegramBot,
+                "/user/telegram/getBotInfo",
+                Method::GET,
+                json!({}),
+            ),
         ];
         for (operation, path, method, params) in &cases {
             let response = operation_at(&base, *operation, Some("Bearer test"), params.clone()).await?;
@@ -360,30 +542,73 @@ mod tests {
                 assert_eq!(response["current_page"], 2);
             }
             let requests = captured.lock();
-            let last = requests.last().ok_or_else(|| anyhow::anyhow!("Mock did not capture the request"))?;
+            let last = requests
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("Mock did not capture the request"))?;
             assert_eq!(last.path.as_str(), *path);
             assert_eq!(&last.method, method);
-            assert_eq!(last.authorization.as_deref(), operation.authenticated().then_some("Bearer test"));
+            assert_eq!(
+                last.authorization.as_deref(),
+                operation.authenticated().then_some("Bearer test")
+            );
             if *method == Method::POST {
                 assert_eq!(&last.body, params);
                 assert!(last.query.is_empty());
             } else {
-                let expected: HashMap<_, _> = params.as_object().ok_or_else(|| anyhow::anyhow!("Test parameters must be an object"))?.iter().map(|(key,value)| {
-                    (key.clone(), value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
-                }).collect();
+                let expected: HashMap<_, _> = params
+                    .as_object()
+                    .ok_or_else(|| anyhow::anyhow!("Test parameters must be an object"))?
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()),
+                        )
+                    })
+                    .collect();
                 assert_eq!(last.query, expected);
                 assert!(last.body.is_null());
             }
         }
         assert_eq!(captured.lock().len(), cases.len());
-        for operation in [XboardOperation::Nodes, XboardOperation::Traffic, XboardOperation::Knowledge, XboardOperation::Tickets, XboardOperation::Orders, XboardOperation::Invites, XboardOperation::UserInfo] {
+        for operation in [
+            XboardOperation::Nodes,
+            XboardOperation::Traffic,
+            XboardOperation::Knowledge,
+            XboardOperation::Tickets,
+            XboardOperation::Orders,
+            XboardOperation::Invites,
+            XboardOperation::UserInfo,
+        ] {
             let response = operation_at(&base, operation, Some("Bearer empty"), json!({})).await?;
             assert_eq!(response["data"], json!([]));
         }
         let before = captured.lock().len();
-        assert!(operation_at(&base, XboardOperation::Withdraw, Some("Bearer test"), json!({"amount":1})).await.is_err());
-        assert!(operation_at(&base, XboardOperation::TicketSave, Some("Bearer test"), json!({"method":"DELETE"})).await.is_err());
-        assert!(operation_at(&base, XboardOperation::UserInfo, None, json!({})).await.is_err());
+        assert!(
+            operation_at(
+                &base,
+                XboardOperation::Withdraw,
+                Some("Bearer test"),
+                json!({"amount":1})
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            operation_at(
+                &base,
+                XboardOperation::TicketSave,
+                Some("Bearer test"),
+                json!({"method":"DELETE"})
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            operation_at(&base, XboardOperation::UserInfo, None, json!({}))
+                .await
+                .is_err()
+        );
         assert_eq!(captured.lock().len(), before);
         assert!(serde_json::from_value::<XboardOperation>(json!("user/arbitrary/path")).is_err());
         server.abort();
@@ -392,26 +617,42 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_mutation_is_never_automatically_replayed() -> anyhow::Result<()> {
-        use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
         use warp::Filter as _;
         let requests = Arc::new(AtomicUsize::new(0));
         let received = Arc::clone(&requests);
         let route = warp::any().map(move || {
             received.fetch_add(1, Ordering::SeqCst);
-            warp::reply::with_status(warp::reply::json(&json!({"status":"fail"})), StatusCode::INTERNAL_SERVER_ERROR)
+            warp::reply::with_status(
+                warp::reply::json(&json!({"status":"fail"})),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);
         let server = tokio::spawn(warp::serve(route).incoming(listener).run());
         for (operation, params) in [
-            (XboardOperation::TicketSave, json!({"subject":"test","level":1,"message":"test"})),
+            (
+                XboardOperation::TicketSave,
+                json!({"subject":"test","level":1,"message":"test"}),
+            ),
             (XboardOperation::Transfer, json!({"transfer_amount":100})),
-            (XboardOperation::Withdraw, json!({"withdraw_method":"bank","withdraw_account":"test"})),
+            (
+                XboardOperation::Withdraw,
+                json!({"withdraw_method":"bank","withdraw_account":"test"}),
+            ),
             (XboardOperation::InviteSave, json!({})),
             (XboardOperation::ResetSecurity, json!({})),
         ] {
             let before = requests.load(Ordering::SeqCst);
-            assert!(operation_at(&base, operation, Some("Bearer test"), params).await.is_err());
+            assert!(
+                operation_at(&base, operation, Some("Bearer test"), params)
+                    .await
+                    .is_err()
+            );
             assert_eq!(requests.load(Ordering::SeqCst), before + 1);
         }
         server.abort();

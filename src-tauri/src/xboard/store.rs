@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use tokio::fs;
 
 fn path(name: &str) -> Result<PathBuf> {
-    dirs::app_home_dir().map(|dir| dir.join(name)).map_err(|_| Error::storage())
+    dirs::app_home_dir()
+        .map(|dir| dir.join(name))
+        .map_err(|_| Error::storage())
 }
 
 pub async fn read() -> Result<Option<Binding>> {
@@ -26,7 +28,9 @@ pub async fn save(binding: &Binding) -> Result<()> {
     let encrypted = encrypted?;
     let pending = path("xboard-account.dat.pending")?;
     fs::write(&pending, encrypted).await.map_err(|_| Error::storage())?;
-    fs::rename(&pending, path("xboard-account.dat")?).await.map_err(|_| Error::storage())
+    fs::rename(&pending, path("xboard-account.dat")?)
+        .await
+        .map_err(|_| Error::storage())
 }
 
 pub async fn clear() -> Result<()> {
@@ -42,11 +46,15 @@ pub async fn clear() -> Result<()> {
 }
 
 pub async fn onboarding_complete() -> Result<bool> {
-    fs::try_exists(path("xboard-onboarding-complete")?).await.map_err(|_| Error::storage())
+    fs::try_exists(path("xboard-onboarding-complete")?)
+        .await
+        .map_err(|_| Error::storage())
 }
 
 pub async fn complete_onboarding() -> Result<()> {
-    fs::write(path("xboard-onboarding-complete")?, b"1").await.map_err(|_| Error::storage())
+    fs::write(path("xboard-onboarding-complete")?, b"1")
+        .await
+        .map_err(|_| Error::storage())
 }
 
 #[cfg(windows)]
@@ -59,17 +67,40 @@ fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>> {
         cbData: u32::try_from(bytes.len()).map_err(|_| Error::storage())?,
         pbData: bytes.as_ptr().cast_mut(),
     };
-    let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: std::ptr::null_mut(),
+    };
     // Omitting CRYPTPROTECT_LOCAL_MACHINE binds this ciphertext to the current Windows user.
     let success = unsafe {
         if encrypt {
-            CryptProtectData(&input, std::ptr::null(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output)
+            CryptProtectData(
+                &input,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut output,
+            )
         } else {
-            CryptUnprotectData(&input, std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output)
+            CryptUnprotectData(
+                &input,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut output,
+            )
         }
     };
-    if success == 0 { return Err(Error::storage()); }
-    if output.pbData.is_null() { return Err(Error::storage()); }
+    if success == 0 {
+        return Err(Error::storage());
+    }
+    if output.pbData.is_null() {
+        return Err(Error::storage());
+    }
     let plaintext = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
     unsafe {
         std::ptr::write_bytes(output.pbData, 0, output.cbData as usize);
@@ -80,16 +111,32 @@ fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>> {
 
 fn protect(bytes: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
-    { crypt(bytes, true) }
+    {
+        crypt(bytes, true)
+    }
     #[cfg(not(windows))]
-    { let _ = bytes; Err(Error::new("XBOARD_PLATFORM_UNSUPPORTED", "Account storage is available in the Windows build.")) }
+    {
+        let _ = bytes;
+        Err(Error::new(
+            "XBOARD_PLATFORM_UNSUPPORTED",
+            "Account storage is available in the Windows build.",
+        ))
+    }
 }
 
 fn unprotect(bytes: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
-    { crypt(bytes, false) }
+    {
+        crypt(bytes, false)
+    }
     #[cfg(not(windows))]
-    { let _ = bytes; Err(Error::new("XBOARD_PLATFORM_UNSUPPORTED", "Account storage is available in the Windows build.")) }
+    {
+        let _ = bytes;
+        Err(Error::new(
+            "XBOARD_PLATFORM_UNSUPPORTED",
+            "Account storage is available in the Windows build.",
+        ))
+    }
 }
 
 #[cfg(all(test, windows))]

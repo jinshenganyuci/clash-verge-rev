@@ -12,14 +12,9 @@
       "icons/icon.ico",
       "icons/Assets.car"
     ],
-    "resources": [
-      "resources"
-    ],
+    "resources": ["resources"],
     "publisher": "jinshenganyuci",
-    "externalBin": [
-      "sidecar/verge-mihomo",
-      "sidecar/verge-mihomo-alpha"
-    ],
+    "externalBin": ["sidecar/verge-mihomo", "sidecar/verge-mihomo-alpha"],
     "copyright": "GNU General Public License v3.0",
     "category": "DeveloperTool",
     "shortDescription": "Clash Verge Xboard",
@@ -38,24 +33,17 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "clash-verge-xboard"
-        ]
+        "schemes": ["clash-verge-xboard"]
       }
     }
   },
   "app": {
     "security": {
-      "capabilities": [
-        "desktop-capability",
-        "migrated"
-      ],
+      "capabilities": ["desktop-capability", "migrated"],
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": [
-            "**"
-          ],
+          "allow": ["**"],
           "requireLiteralLeadingDot": false
         }
       },
