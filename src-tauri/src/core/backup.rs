@@ -287,7 +287,7 @@ pub async fn create_backup() -> Result<(String, PathBuf), Error> {
                 let file_name = file_name_os
                     .to_str()
                     .ok_or_else(|| anyhow::Error::msg("Invalid file name encoding"))?;
-                if file_name.starts_with(&format!("{}-", crate::xboard::MANAGED_UID)) {
+                if file_name.starts_with(crate::xboard::MANAGED_FILE_PREFIX) {
                     continue;
                 }
                 let backup_path = format!("profiles/{}", file_name);

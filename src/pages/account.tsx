@@ -15,6 +15,11 @@ import { useAccountText, useXboard } from '@/hooks/use-xboard'
 type Section = 'nodes' | 'traffic' | 'knowledge' | 'tickets' | 'orders' | 'invite' | 'settings'
 
 export default function AccountPage() {
+  const account = useXboard()
+  return <AccountContent key={account.data?.signed_in ? `member:${account.data.email}` : 'guest'} />
+}
+
+function AccountContent() {
   const text = useAccountText()
   const account = useXboard()
   const [section, setSection] = useState<Section | null>(null)

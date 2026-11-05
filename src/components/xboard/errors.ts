@@ -18,6 +18,7 @@ const chineseErrors: Record<string, string> = {
   'The account service declined this request. Check the information and try again.': '请求未完成，请检查填写的信息后重试。',
   'Enter a valid email and a password of at least eight characters.': '请填写有效邮箱，密码至少需要 8 个字符。',
   'Your account was created, but the session could not be saved. Please sign in instead of registering again.': '账号已创建，但无法保存登录信息。请返回登录，不要重复注册。',
+  'Registration could not be confirmed. The account may already exist. Try signing in before registering again.': '未能确认注册结果，账号可能已经创建。请先尝试登录，再决定是否重新注册。',
 }
 
 export function accountError(error: unknown, chinese: boolean) {

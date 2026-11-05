@@ -33,8 +33,8 @@ export function AccountSettings() {
 function AccountSettingsForm({ info, config, refresh }: { info: UserInfo; config: AccountConfig; refresh: () => Promise<void> }) {
   const text = useAccountText()
   const task = useAccountTask()
-  const [expiry, setExpiry] = useState(flag(info.remind_expire))
-  const [traffic, setTraffic] = useState(flag(info.remind_traffic))
+  const [expiry, setExpiry] = useState(() => flag(info.remind_expire))
+  const [traffic, setTraffic] = useState(() => flag(info.remind_traffic))
   const [dialog, setDialog] = useState<'password' | 'reset' | null>(null)
   const [telegram, setTelegram] = useState(false)
   const [oldPassword, setOldPassword] = useState('')

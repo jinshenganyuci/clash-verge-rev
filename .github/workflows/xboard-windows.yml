@@ -78,11 +78,16 @@ jobs:
       - name: Prepare Windows x64 cores and isolated service
         run: pnpm prebuild x86_64-pc-windows-msvc
 
+      - name: Verify isolated service channel
+        run: cargo test --manifest-path ../service/Cargo.toml --locked --release --features standalone,client,xboard-channel --lib channel::tests
+
       - name: Resolve the pinned Xboard service dependency
         run: cargo update -p clash_verge_service_ipc
 
       - name: Format Rust and generate IPC bindings
         run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Set-Content dist/index.html '<!doctype html><title>IPC contract generation</title>'
           cargo fmt --all
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm gen:contract
@@ -96,7 +101,7 @@ jobs:
           pnpm arch:check
 
       - name: Xboard backend tests
-        run: cargo test -p clash-verge --lib xboard --locked
+        run: cargo test -p clash-verge --lib xboard --locked --features clippy
 
       - name: Build the Windows x64 installer
         run: pnpm exec tauri build --target x86_64-pc-windows-msvc --bundles nsis
@@ -119,6 +124,21 @@ jobs:
           "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
           "Commit: ${{ github.sha }}" | Set-Content "$($installer.DirectoryName)/build-info.txt"
           "SHA256: $hash" | Add-Content "$($installer.DirectoryName)/build-info.txt"
+
+      - name: Smoke test isolated Windows installation
+        timeout-minutes: 15
+        run: |
+          $installer = @(Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          if ($installer.Count -ne 1) { throw 'Expected exactly one x64 installer' }
+          ./scripts/xboard-install-smoke.ps1 -InstallerPath $installer[0].FullName
+
+      - name: Upload installation smoke logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xboard-install-smoke
+          path: ${{ runner.temp }}/xboard-smoke-artifacts
+          if-no-files-found: ignore
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7

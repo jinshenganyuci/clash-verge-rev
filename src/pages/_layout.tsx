@@ -109,8 +109,6 @@ const Layout = () => {
     <ThemeProvider theme={theme}>
       {/* 左侧底部窗口控制按钮 */}
       <NoticeManager position={verge?.notice_position} />
-      <ServiceMigrationDialog />
-      <SysproxyPrivilegeDialog />
       <div
         style={{
           animation: 'fadeIn 0.5s',
@@ -162,6 +160,8 @@ const Layout = () => {
 
         <div className="layout-content">
           <AccountGate>
+          <ServiceMigrationDialog />
+          <SysproxyPrivilegeDialog />
           <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
 
           <div className="layout-content__right">

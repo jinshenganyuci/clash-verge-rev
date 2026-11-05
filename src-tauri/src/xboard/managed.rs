@@ -1,11 +1,11 @@
 use super::{Error, MANAGED_UID, Result, XboardSubscription};
 use crate::{
-    config::{Config, PrfItem, PrfOption, profiles::PROFILE_WRITE_LOCK},
+    config::{Config, PrfOption, profiles::{PROFILE_WRITE_LOCK, activate_selected_nodes}},
     core::{CoreManager, handle::Handle, validate::CoreConfigValidator},
-    utils::dirs,
+    utils::{dirs, retry::{RetryError, RetryPolicy, retry}},
 };
 use serde_yaml_ng::{Mapping, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{num::NonZeroUsize, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tokio::fs;
 
 pub const FILE_PREFIX: &str = "xboard-account-";
@@ -34,6 +34,24 @@ pub async fn exists() -> bool {
     Config::profiles().await.latest_arc().get_item(MANAGED_UID).is_ok()
 }
 
+async fn cleanup_files(keep: Option<&std::path::Path>) -> Result<()> {
+    let directory = dirs::app_profiles_dir().map_err(|_| Error::storage())?;
+    let mut entries = fs::read_dir(directory).await.map_err(|_| Error::storage())?;
+    while let Some(entry) = entries.next_entry().await.map_err(|_| Error::storage())? {
+        let path = entry.path();
+        if keep == Some(path.as_path()) || !entry.file_name().to_string_lossy().starts_with(FILE_PREFIX) {
+            continue;
+        }
+        if !entry.file_type().await.map_err(|_| Error::storage())?.is_file() { continue; }
+        match fs::remove_file(path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(Error::storage()),
+        }
+    }
+    Ok(())
+}
+
 pub async fn install(text: &str, subscription: &XboardSubscription, activate: bool) -> Result<()> {
     if revoked_configuration(text)? { return Err(Error::unavailable()); }
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Error::storage())?.as_nanos();
@@ -51,7 +69,6 @@ pub async fn install(text: &str, subscription: &XboardSubscription, activate: bo
     let result = profiles.with_data_modify(|mut candidate| async move {
         let original = candidate.clone();
         let previous = candidate.get_item(MANAGED_UID).ok().cloned();
-        let old_file = previous.as_ref().and_then(|item| item.file.clone());
         let mut item = previous.unwrap_or_default();
         item.uid = Some(MANAGED_UID.into());
         item.itype = Some("local".into());
@@ -83,19 +100,20 @@ pub async fn install(text: &str, subscription: &XboardSubscription, activate: bo
             candidate.save_file().await?;
             None
         };
-        Ok((candidate, (old_file, guard)))
+        Ok((candidate, guard))
     }).await;
     match result {
-        Ok((old_file, guard)) => {
+        Ok(guard) => {
+            if guard.is_some() { activate_selected_nodes(); }
             drop(guard);
-            if let Some(file) = old_file { let _ = fs::remove_file(directory.join(file.as_str())).await; }
             Handle::notify_profile_changed(&MANAGED_UID.into());
             Handle::refresh_clash();
+            cleanup_files(Some(&path)).await?;
             Ok(())
         }
         Err(_) => {
-            let _ = fs::remove_file(path).await;
-            Err(Error::new("XBOARD_PROFILE_APPLY_FAILED", "The subscription could not be applied. The previous configuration was kept."))
+            // A failed rollback may still reference this candidate; retain both versions for recovery.
+            Err(Error::new("XBOARD_PROFILE_APPLY_FAILED", "The subscription could not be confirmed. The previous configuration files were retained."))
         }
     }
 }
@@ -105,7 +123,6 @@ pub async fn remove() -> Result<()> {
     let profiles = Config::profiles().await;
     let result = profiles.with_data_modify(|mut candidate| async move {
         let original = candidate.clone();
-        let old_file = candidate.get_item(MANAGED_UID).ok().and_then(|item| item.file.clone());
         let active = candidate.current.as_deref() == Some(MANAGED_UID);
         if let Some(items) = candidate.items.as_mut() { items.retain(|item| item.uid.as_deref() != Some(MANAGED_UID)); }
         if active { candidate.current = None; }
@@ -120,18 +137,47 @@ pub async fn remove() -> Result<()> {
         };
         // Configuration is committed even if stopping the OS proxy subsequently fails.
         let stopped = if active { CoreManager::global().stop_core().await.is_ok() } else { true };
-        Ok((candidate, (old_file, guard, stopped)))
-    }).await.map_err(|_| Error::new("XBOARD_PROFILE_REMOVE_FAILED", "The account configuration could not be removed. Please retry."))?;
-    let (old_file, guard, stopped) = result;
+        Ok((candidate, (guard, stopped)))
+    }).await;
+    let result = match result {
+        Ok(result) => result,
+        Err(_) => {
+            drop(_write);
+            stop_failed_removal().await?;
+            return Err(Error::new("XBOARD_PROFILE_REMOVE_FAILED", "The account proxy was stopped, but its configuration could not be removed. Please retry."));
+        }
+    };
+    let (guard, stopped) = result;
     drop(guard);
-    if let Some(file) = old_file {
-        let directory = dirs::app_profiles_dir().map_err(|_| Error::storage())?;
-        fs::remove_file(directory.join(file.as_str())).await.map_err(|_| Error::storage())?;
-    }
     Handle::notify_profile_changed(&MANAGED_UID.into());
     Handle::refresh_clash();
+    cleanup_files(None).await?;
     if !stopped {
         return Err(Error::new("XBOARD_PROXY_STOP_FAILED", "The account configuration was removed, but the proxy could not be stopped. Please disable the system proxy."));
+    }
+    Ok(())
+}
+
+async fn stop_failed_removal() -> Result<()> {
+    let manager = CoreManager::global();
+    let result = retry(
+        RetryPolicy::fixed(NonZeroUsize::MIN.saturating_add(19), Duration::from_millis(250)),
+        |_| async {
+            let config_write = Config::lock_config_write().await;
+            let update = manager.claim_config_update(&config_write).map_err(RetryError::Retry)?;
+            if Config::profiles().await.latest_arc().current.as_deref() == Some(MANAGED_UID) {
+                manager.stop_core().await.map_err(RetryError::Stop)?;
+            }
+            drop(update);
+            Ok(())
+        },
+    ).await;
+    if result.is_err() {
+        // A busy or failing service must not prevent the final attempt to release the OS proxy.
+        if Config::profiles().await.latest_arc().current.as_deref() == Some(MANAGED_UID) {
+            let _ = manager.stop_core().await;
+        }
+        return Err(Error::new("XBOARD_PROXY_STOP_FAILED", "The account proxy could not be confirmed stopped. Please disable the system proxy and retry sign-out."));
     }
     Ok(())
 }

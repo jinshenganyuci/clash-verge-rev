@@ -201,9 +201,16 @@ fn checked_params(operation: XboardOperation, params: Value) -> Result<Value> {
 }
 
 pub async fn operation(operation: XboardOperation, bearer: Option<&str>, params: Value) -> Result<Value> {
+    operation_at(API, operation, bearer, params).await
+}
+
+async fn operation_at(base: &str, operation: XboardOperation, bearer: Option<&str>, params: Value) -> Result<Value> {
     let params = checked_params(operation, params)?;
+    let bearer = if operation.authenticated() {
+        Some(bearer.ok_or_else(Error::session_expired)?)
+    } else { None };
     let (path, method, _) = operation.route();
-    request(path, method, bearer, params).await
+    request_at(base, path, method, bearer, params).await
 }
 
 pub fn subscription_url(raw: &str) -> Result<tauri::Url> {
@@ -275,6 +282,133 @@ mod tests {
         assert_eq!(request_at(&base,"business",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_REQUEST_FAILED");
         assert_eq!(request_at(&base,"expired",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_SESSION_EXPIRED");
         assert_eq!(request_at(&base,"redirect",Method::GET,Some("Bearer test"),json!({})).await.unwrap_err().code,"XBOARD_REQUEST_FAILED");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn all_member_operations_use_only_the_expected_route_method_and_parameters() {
+        use std::{collections::HashMap, sync::{Arc, Mutex}};
+        use warp::Filter as _;
+
+        #[derive(Debug)]
+        struct Captured {
+            path: String,
+            method: Method,
+            authorization: Option<String>,
+            query: HashMap<String, String>,
+            body: Value,
+        }
+
+        let captured = Arc::new(Mutex::new(Vec::<Captured>::new()));
+        let received = Arc::clone(&captured);
+        let route = warp::path::full()
+            .and(warp::method())
+            .and(warp::header::optional::<String>("authorization"))
+            .and(warp::query::<HashMap<String, String>>())
+            .and(warp::body::bytes())
+            .map(move |path: warp::path::FullPath, method: Method, authorization: Option<String>, query: HashMap<String, String>, bytes: bytes::Bytes| {
+                let response = if path.as_str() == "/user/invite/details" {
+                    json!({"data":[{"commission_balance":100}],"total":31,"current_page":2,"last_page":4,"per_page":10})
+                } else if authorization.as_deref() == Some("Bearer empty") {
+                    json!({"status":"success","data":[]})
+                } else {
+                    json!({"status":"success","data":{"ok":true}})
+                };
+                received.lock().unwrap().push(Captured {
+                    path: path.as_str().to_owned(), method, authorization, query,
+                    body: if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() },
+                });
+                warp::reply::json(&response)
+            });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(warp::serve(route).incoming(listener).run());
+        let cases = [
+            (XboardOperation::RegistrationPolicy, "/guest/comm/config", Method::GET, json!({})),
+            (XboardOperation::SendEmailCode, "/passport/comm/sendEmailVerify", Method::POST, json!({"email":"member@example.com"})),
+            (XboardOperation::Nodes, "/user/server/fetch", Method::GET, json!({})),
+            (XboardOperation::Traffic, "/user/stat/getTrafficLog", Method::GET, json!({})),
+            (XboardOperation::Knowledge, "/user/knowledge/fetch", Method::GET, json!({"language":"zh-CN","keyword":"help"})),
+            (XboardOperation::Knowledge, "/user/knowledge/fetch", Method::GET, json!({"language":"zh-CN","id":7})),
+            (XboardOperation::Tickets, "/user/ticket/fetch", Method::GET, json!({})),
+            (XboardOperation::Tickets, "/user/ticket/fetch", Method::GET, json!({"id":12})),
+            (XboardOperation::TicketSave, "/user/ticket/save", Method::POST, json!({"subject":"Question","level":1,"message":"Please help"})),
+            (XboardOperation::TicketReply, "/user/ticket/reply", Method::POST, json!({"id":12,"message":"Thanks"})),
+            (XboardOperation::TicketClose, "/user/ticket/close", Method::POST, json!({"id":12})),
+            (XboardOperation::Orders, "/user/order/fetch", Method::GET, json!({})),
+            (XboardOperation::OrderDetail, "/user/order/detail", Method::GET, json!({"trade_no":"test-2026"})),
+            (XboardOperation::Invites, "/user/invite/fetch", Method::GET, json!({})),
+            (XboardOperation::InviteSave, "/user/invite/save", Method::GET, json!({})),
+            (XboardOperation::InviteDetails, "/user/invite/details", Method::GET, json!({"current":2,"page_size":10})),
+            (XboardOperation::Transfer, "/user/transfer", Method::POST, json!({"transfer_amount":12345})),
+            (XboardOperation::Withdraw, "/user/ticket/withdraw", Method::POST, json!({"withdraw_method":"bank","withdraw_account":"test-account"})),
+            (XboardOperation::UserInfo, "/user/info", Method::GET, json!({})),
+            (XboardOperation::UserConfig, "/user/comm/config", Method::GET, json!({})),
+            (XboardOperation::UserUpdate, "/user/update", Method::POST, json!({"remind_expire":"1","remind_traffic":"0"})),
+            (XboardOperation::ChangePassword, "/user/changePassword", Method::POST, json!({"old_password":"old-password","new_password":"new-password"})),
+            (XboardOperation::ResetSecurity, "/user/resetSecurity", Method::GET, json!({})),
+            (XboardOperation::TelegramBot, "/user/telegram/getBotInfo", Method::GET, json!({})),
+        ];
+        for (operation, path, method, params) in &cases {
+            let response = operation_at(&base, *operation, Some("Bearer test"), params.clone()).await.unwrap();
+            if matches!(operation, XboardOperation::InviteDetails) {
+                assert_eq!(response["total"], 31);
+                assert_eq!(response["current_page"], 2);
+            }
+            let requests = captured.lock().unwrap();
+            let last = requests.last().unwrap();
+            assert_eq!(last.path.as_str(), *path);
+            assert_eq!(&last.method, method);
+            assert_eq!(last.authorization.as_deref(), operation.authenticated().then_some("Bearer test"));
+            if *method == Method::POST {
+                assert_eq!(&last.body, params);
+                assert!(last.query.is_empty());
+            } else {
+                let expected: HashMap<_, _> = params.as_object().unwrap().iter().map(|(key,value)| {
+                    (key.clone(), value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
+                }).collect();
+                assert_eq!(last.query, expected);
+                assert!(last.body.is_null());
+            }
+        }
+        assert_eq!(captured.lock().unwrap().len(), cases.len());
+        for operation in [XboardOperation::Nodes, XboardOperation::Traffic, XboardOperation::Knowledge, XboardOperation::Tickets, XboardOperation::Orders, XboardOperation::Invites, XboardOperation::UserInfo] {
+            let response = operation_at(&base, operation, Some("Bearer empty"), json!({})).await.unwrap();
+            assert_eq!(response["data"], json!([]));
+        }
+        let before = captured.lock().unwrap().len();
+        assert!(operation_at(&base, XboardOperation::Withdraw, Some("Bearer test"), json!({"amount":1})).await.is_err());
+        assert!(operation_at(&base, XboardOperation::TicketSave, Some("Bearer test"), json!({"method":"DELETE"})).await.is_err());
+        assert!(operation_at(&base, XboardOperation::UserInfo, None, json!({})).await.is_err());
+        assert_eq!(captured.lock().unwrap().len(), before);
+        assert!(serde_json::from_value::<XboardOperation>(json!("user/arbitrary/path")).is_err());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_failed_mutation_is_never_automatically_replayed() {
+        use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+        use warp::Filter as _;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let received = Arc::clone(&requests);
+        let route = warp::any().map(move || {
+            received.fetch_add(1, Ordering::SeqCst);
+            warp::reply::with_status(warp::reply::json(&json!({"status":"fail"})), StatusCode::INTERNAL_SERVER_ERROR)
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(warp::serve(route).incoming(listener).run());
+        for (operation, params) in [
+            (XboardOperation::TicketSave, json!({"subject":"test","level":1,"message":"test"})),
+            (XboardOperation::Transfer, json!({"transfer_amount":100})),
+            (XboardOperation::Withdraw, json!({"withdraw_method":"bank","withdraw_account":"test"})),
+            (XboardOperation::InviteSave, json!({})),
+            (XboardOperation::ResetSecurity, json!({})),
+        ] {
+            let before = requests.load(Ordering::SeqCst);
+            assert!(operation_at(&base, operation, Some("Bearer test"), params).await.is_err());
+            assert_eq!(requests.load(Ordering::SeqCst), before + 1);
+        }
         server.abort();
     }
 }

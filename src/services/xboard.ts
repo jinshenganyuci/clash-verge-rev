@@ -2,6 +2,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
 import {
   xboardSnapshot,
+  xboardRegistrationPolicy,
   xboardLogin,
   xboardRegister,
   xboardLogout,
@@ -42,6 +43,7 @@ export type AccountOperation =
 export type AccountParams = Record<string, string | number>
 export interface AccountEnvelope<T> { data: T; total?: number }
 export const accountKey = ['xboardSnapshot'] as const
+export const readRegistrationPolicy = () => xboardRegistrationPolicy()
 let snapshotVersion = 0
 
 export async function readAccount(): Promise<AccountSnapshot> {
@@ -84,7 +86,8 @@ export async function accountRequest<T>(operation: AccountOperation, params: Acc
   try {
     return await xboardRequest(operation, params) as unknown as AccountEnvelope<T>
   } catch (error) {
-    await revalidateQuery(accountKey)
+    snapshotVersion += 1
+    await Promise.allSettled([revalidateQuery(accountKey)])
     throw error
   }
 }
@@ -92,6 +95,7 @@ export async function accountRequest<T>(operation: AccountOperation, params: Acc
 export async function accountWrite(operation: AccountOperation, params: AccountParams = {}) {
   const result = await mutate(() => accountRequest<unknown>(operation, params), {
     id: 'xboard-account', errorNotice: false,
+    onFulfilled: () => { if (operation === 'reset_security') snapshotVersion += 1 },
     revalidate: operation === 'reset_security' ? [accountKey, ['getProfiles']] : [accountKey],
   })
   return result.value
@@ -103,7 +107,8 @@ export async function copyAccountLink(telegram = false) {
       id: 'xboard-account', errorNotice: false, revalidate: [accountKey],
     })
   } catch (error) {
-    await revalidateQuery(accountKey)
+    snapshotVersion += 1
+    await Promise.allSettled([revalidateQuery(accountKey)])
     throw error
   }
 }

@@ -30,14 +30,15 @@ pub async fn save(binding: &Binding) -> Result<()> {
 }
 
 pub async fn clear() -> Result<()> {
+    let mut failed = false;
     for name in ["xboard-account.dat", "xboard-account.dat.pending"] {
         match fs::remove_file(path(name)?).await {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(Error::storage()),
+            Err(_) => failed = true,
         }
     }
-    Ok(())
+    if failed { Err(Error::storage()) } else { Ok(()) }
 }
 
 pub async fn onboarding_complete() -> Result<bool> {

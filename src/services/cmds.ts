@@ -18,6 +18,7 @@ import type {
 } from './bindings'
 
 export const xboardSnapshot = () => commands.xboardSnapshot()
+export const xboardRegistrationPolicy = () => commands.xboardRegistrationPolicy()
 export const xboardLogin = (email: string, password: string) => commands.xboardLogin(email, password)
 export const xboardRegister = (input: Parameters<typeof commands.xboardRegister>[0]) => commands.xboardRegister(input)
 export const xboardLogout = () => commands.xboardLogout()

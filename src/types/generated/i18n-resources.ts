@@ -205,6 +205,7 @@ export interface TranslationResources {
             unlock: string
           }
           tabs: {
+            account: string
             connections: string
             home: string
             logs: string
@@ -707,6 +708,7 @@ export interface TranslationResources {
               openCoreDir: string
               openDevTools: string
               openLogsDir: string
+              projectDownloads: string
               runtimeConfig: string
               vergeVersion: string
             }
@@ -1589,6 +1591,7 @@ export interface TranslationResources {
           noDisney: string
           originalsOnly: string
           pending: string
+          risky: string
           unsupportedRegion: string
           yes: string
         }

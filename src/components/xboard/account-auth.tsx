@@ -2,20 +2,10 @@ import { AccountCircleOutlined, ArrowForwardRounded, LockOutlined } from '@mui/i
 import { Alert, Box, Button, Checkbox, FormControlLabel, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 
-import { useAccountQuery, useAccountTask, useAccountText } from '@/hooks/use-xboard'
+import { useAccountTask, useAccountText, useRegistrationPolicy } from '@/hooks/use-xboard'
 import { accountWrite, completeOnboarding, openAccountWebsite, registerAccount, signIn } from '@/services/xboard'
 
-import { flag } from './format'
 import { AccountLoading, AccountPanel, TaskMessage } from './shared'
-
-interface RegistrationPolicy {
-  is_email_verify: boolean | number
-  is_invite_force: boolean | number
-  is_captcha?: boolean | number
-  is_recaptcha?: boolean | number
-  email_whitelist_suffix?: string[]
-  tos_url?: string
-}
 
 export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
   const text = useAccountText()
@@ -29,12 +19,12 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
   const [accepted, setAccepted] = useState(false)
   const [validation, setValidation] = useState('')
   const [remaining, setRemaining] = useState(0)
-  const policyQuery = useAccountQuery<RegistrationPolicy>('registration_policy', {}, mode === 'register')
-  const policy = policyQuery.data?.data
-  const captcha = flag(policy?.is_captcha ?? policy?.is_recaptcha)
-  const emailRequired = flag(policy?.is_email_verify)
-  const inviteRequired = flag(policy?.is_invite_force)
-  const terms = policy?.tos_url
+  const policyQuery = useRegistrationPolicy(mode === 'register')
+  const policy = policyQuery.data
+  const captcha = policy?.captcha_required ?? false
+  const emailRequired = policy?.email_verification_required ?? false
+  const inviteRequired = policy?.invite_required ?? false
+  const terms = policy?.terms_url
 
   useEffect(() => {
     if (remaining <= 0) return
@@ -45,7 +35,7 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
   const checkEmail = () => {
     const value = email.trim()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return text('请输入有效的邮箱地址。', 'Enter a valid email address.')
-    const domains = policy?.email_whitelist_suffix ?? []
+    const domains = policy?.email_domains ?? []
     if (mode === 'register' && domains.length && !domains.some((domain) => domain.toLowerCase() === value.split('@')[1].toLowerCase())) {
       return `${text('支持的邮箱后缀：', 'Allowed email domains: ')}${domains.join(', ')}`
     }
@@ -90,7 +80,7 @@ export function AccountAuth({ welcome = false }: { welcome?: boolean }) {
   return <Box sx={{ width: '100%', maxWidth: 460, mx: 'auto', py: welcome ? 3 : 1 }}>
     <Stack spacing={1} alignItems="center" sx={{ mb: 3 }}>
       <AccountCircleOutlined sx={{ fontSize: 54, color: 'primary.main' }} />
-      <Typography variant="h4" fontWeight={700}>{welcome ? text('欢迎使用 IKUN Clash', 'Welcome to IKUN Clash') : text('登录账户', 'Sign in')}</Typography>
+      <Typography variant="h4" fontWeight={700}>{welcome ? text('欢迎使用 Clash Verge Xboard', 'Welcome to Clash Verge Xboard') : text('登录账户', 'Sign in')}</Typography>
       <Typography color="text.secondary" textAlign="center">{text('登录会员账号，自动同步套餐与订阅。', 'Sign in to sync your membership and subscription.')}</Typography>
     </Stack>
     <AccountPanel>

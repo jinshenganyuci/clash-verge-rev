@@ -80,6 +80,40 @@ pub struct XboardRegisterInput {
     pub invite_code: Option<String>,
 }
 
+#[derive(Serialize, specta::Type)]
+pub struct XboardRegistrationPolicy {
+    pub email_verification_required: bool,
+    pub invite_required: bool,
+    pub captcha_required: bool,
+    pub email_domains: Vec<String>,
+    pub terms_url: Option<String>,
+}
+
+#[derive(Serialize, specta::Type)]
+pub struct XboardBusinessResponse {
+    pub data: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub per_page: Option<u64>,
+}
+
+impl XboardBusinessResponse {
+    fn from_value(value: Value) -> Self {
+        Self {
+            data: value["data"].clone(),
+            total: number(&value["total"]),
+            current_page: number(&value["current_page"]),
+            last_page: number(&value["last_page"]),
+            per_page: number(&value["per_page"]),
+        }
+    }
+}
+
 #[derive(Default)]
 struct State {
     loaded: bool,
@@ -87,6 +121,7 @@ struct State {
     binding: Option<Binding>,
     last_checked: Option<std::time::Instant>,
     error: Option<String>,
+    pending_secret_clear: bool,
 }
 
 fn now() -> u64 { chrono::Utc::now().timestamp().max(0) as u64 }
@@ -120,12 +155,14 @@ impl State {
     }
 
     async fn clear(&mut self) -> Result<()> {
-        store::clear().await?;
         self.binding = None;
         self.last_checked = None;
+        let persisted = store::clear().await;
+        self.pending_secret_clear = persisted.is_err();
         let removal = managed::remove().await;
-        self.error = removal.as_ref().err().map(ToString::to_string);
-        removal
+        let result = removal.and(persisted);
+        self.error = result.as_ref().err().map(ToString::to_string);
+        result
     }
 
     async fn fetch_subscription(&mut self) -> Result<SubscriptionRecord> {
@@ -141,7 +178,26 @@ impl State {
     }
 
     async fn sync(&mut self, force: bool, activate: bool) -> Result<()> {
-        if self.binding.is_none() { return Ok(()); }
+        let result = self.sync_inner(force, activate).await;
+        if result.is_err() && self.binding.is_some() {
+            let exists = managed::exists().await;
+            if let Some(binding) = self.binding.as_mut() {
+                binding.profile_uid = exists.then(|| MANAGED_UID.into());
+                if !exists { binding.last_sync = None; }
+            }
+        }
+        result
+    }
+
+    async fn sync_inner(&mut self, force: bool, activate: bool) -> Result<()> {
+        if self.binding.is_none() {
+            let persisted = if self.pending_secret_clear { store::clear().await } else { Ok(()) };
+            self.pending_secret_clear = persisted.is_err();
+            let removal = if managed::exists().await { managed::remove().await } else { Ok(()) };
+            removal.and(persisted)?;
+            self.error = None;
+            return Ok(());
+        }
         if !force && self.last_checked.is_some_and(|last| last.elapsed() < Duration::from_secs(300)) { return Ok(()); }
         let subscription = self.fetch_subscription().await?;
         let mut binding = self.binding.clone().ok_or_else(Error::session_expired)?;
@@ -150,6 +206,10 @@ impl State {
             previous.url != subscription.url || previous.summary.plan_id != subscription.summary.plan_id
                 || previous.summary.expired_at != subscription.summary.expired_at
         });
+        binding.subscription = Some(subscription.clone());
+        self.binding = Some(binding.clone());
+        store::save(&binding).await?;
+        let mut subscription_error = None;
         let available = subscription.summary.plan_id.is_some()
             && subscription.summary.expired_at.is_none_or(|expiry| expiry > now());
         if !available {
@@ -170,15 +230,16 @@ impl State {
                     managed::remove().await?;
                     binding.profile_uid = None;
                     binding.last_sync = None;
+                    subscription_error = Some(error.to_string());
                 }
                 Err(error) => return Err(error),
             }
         }
-        binding.subscription = Some(subscription);
+        // The profile transaction has committed independently of the encrypted account cache.
+        self.binding = Some(binding.clone());
         store::save(&binding).await?;
-        self.binding = Some(binding);
         self.last_checked = Some(std::time::Instant::now());
-        self.error = None;
+        self.error = subscription_error;
         Ok(())
     }
 }
@@ -186,6 +247,9 @@ impl State {
 fn number(value: &Value) -> Option<u64> { value.as_u64().or_else(|| value.as_str().and_then(|value| value.parse().ok())) }
 
 fn parse_subscription(value: &Value) -> Result<SubscriptionRecord> {
+    if value.get("plan_id").is_none() || value.get("expired_at").is_none() {
+        return Err(Error::invalid_response());
+    }
     let raw_url = value["subscribe_url"].as_str().ok_or_else(Error::invalid_response)?;
     api::subscription_url(raw_url)?;
     Ok(SubscriptionRecord {
@@ -226,6 +290,7 @@ async fn sign_in(email: String, password: String, registration: Option<(String, 
         } else { error }
     })?;
     state.binding = Some(binding);
+    state.pending_secret_clear = false;
     store::complete_onboarding().await?;
     state.onboarding_complete = true;
     if let Err(error) = state.sync(true, true).await { state.error = Some(error.to_string()); }
@@ -263,7 +328,7 @@ pub async fn complete_onboarding() -> Result<XboardSnapshot> {
     Ok(state.snapshot())
 }
 
-pub async fn request(operation: XboardOperation, params: Value) -> Result<Value> {
+pub async fn request(operation: XboardOperation, params: Value) -> Result<XboardBusinessResponse> {
     let mut state = STATE.lock().await;
     state.load().await?;
     let bearer = if operation.authenticated() {
@@ -281,10 +346,43 @@ pub async fn request(operation: XboardOperation, params: Value) -> Result<Value>
     if matches!(operation, XboardOperation::ResetSecurity) {
         // This endpoint returns a signed URL. Publish only success and obtain the new URL privately.
         state.sync(true, false).await?;
-        return Ok(json!({"status":"success", "data":true}));
+        return Ok(XboardBusinessResponse::from_value(json!({"data":true})));
     }
     api::redact(&mut response);
-    Ok(response)
+    Ok(XboardBusinessResponse::from_value(response))
+}
+
+fn policy_flag(value: &Value) -> Result<bool> {
+    match value {
+        Value::Bool(value) => Ok(*value),
+        Value::Number(value) if value.as_u64() == Some(1) => Ok(true),
+        Value::Number(value) if value.as_u64() == Some(0) => Ok(false),
+        Value::String(value) if value == "true" || value == "1" => Ok(true),
+        Value::String(value) if value == "false" || value == "0" => Ok(false),
+        _ => Err(Error::invalid_response()),
+    }
+}
+
+fn parse_registration_policy(value: &Value) -> Result<XboardRegistrationPolicy> {
+    let terms_url = value["tos_url"].as_str().filter(|url| !url.trim().is_empty()).and_then(|raw| {
+        let base = tauri::Url::parse("https://ikun.iil.im/").ok()?;
+        let url = base.join(raw).ok()?;
+        (url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()).then(|| url.to_string())
+    });
+    Ok(XboardRegistrationPolicy {
+        email_verification_required: policy_flag(&value["is_email_verify"] )?,
+        invite_required: policy_flag(&value["is_invite_force"] )?,
+        captcha_required: policy_flag(value.get("is_captcha").unwrap_or(&value["is_recaptcha"]))?,
+        email_domains: value["email_whitelist_suffix"].as_array().map(|domains| {
+            domains.iter().filter_map(Value::as_str).map(|domain| domain.trim().to_lowercase()).filter(|domain| !domain.is_empty()).collect()
+        }).unwrap_or_default(),
+        terms_url,
+    })
+}
+
+pub async fn registration_policy() -> Result<XboardRegistrationPolicy> {
+    let response = api::operation(XboardOperation::RegistrationPolicy, None, json!({})).await?;
+    parse_registration_policy(&response["data"])
 }
 
 pub async fn copy_subscription(telegram: bool) -> Result<()> {
@@ -331,6 +429,50 @@ mod tests {
         let wire = serde_json::to_string(&state.snapshot()).unwrap();
         assert!(!wire.contains("Bearer"));
         assert!(!wire.contains("/s/private"));
+    }
+
+    #[test]
+    fn registration_policy_normalizes_flags_and_rejects_unknown_policy() {
+        let policy = parse_registration_policy(&json!({
+            "is_email_verify":"1", "is_invite_force":0, "is_captcha":true,
+            "email_whitelist_suffix":[" EXAMPLE.COM ","mail.test"], "tos_url":"/terms"
+        })).unwrap();
+        assert!(policy.email_verification_required);
+        assert!(!policy.invite_required);
+        assert!(policy.captcha_required);
+        assert_eq!(policy.email_domains, vec!["example.com", "mail.test"]);
+        assert_eq!(policy.terms_url.as_deref(), Some("https://ikun.iil.im/terms"));
+        let legacy = parse_registration_policy(&json!({
+            "is_email_verify":false, "is_invite_force":"false", "is_recaptcha":"0",
+            "email_whitelist_suffix":0, "tos_url":"javascript:alert(1)"
+        })).unwrap();
+        assert!(!legacy.captcha_required);
+        assert!(legacy.email_domains.is_empty());
+        assert!(legacy.terms_url.is_none());
+        assert!(parse_registration_policy(&json!({"is_email_verify":"unknown"})).is_err());
+    }
+
+    #[test]
+    fn business_envelope_preserves_pagination_without_leaking_tokens() {
+        let mut response = json!({
+            "data":[{"email":"member@example.com","token":"secret","auth_data":"Bearer secret","nested":{"subscribe_url":"https://example.com/s/secret"}}],
+            "total":31,"current_page":2,"last_page":4,"per_page":10
+        });
+        api::redact(&mut response);
+        let envelope = XboardBusinessResponse::from_value(response);
+        assert_eq!(envelope.total, Some(31));
+        assert_eq!(envelope.current_page, Some(2));
+        assert_eq!(envelope.last_page, Some(4));
+        assert_eq!(envelope.per_page, Some(10));
+        let wire = serde_json::to_string(&envelope).unwrap();
+        assert!(!wire.contains("secret"));
+        assert!(wire.contains("member@example.com"));
+    }
+
+    #[test]
+    fn malformed_subscription_metadata_cannot_revoke_a_working_profile() {
+        let malformed = json!({"expired_at":null,"u":0,"d":0,"transfer_enable":0,"subscribe_url":"https://example.com/s/private"});
+        assert!(parse_subscription(&malformed).is_err());
     }
 
 }

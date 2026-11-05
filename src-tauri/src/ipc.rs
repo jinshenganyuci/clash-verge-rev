@@ -10,6 +10,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             cmd::xboard_logout,
             cmd::xboard_refresh,
             cmd::xboard_request,
+            cmd::xboard_registration_policy,
             cmd::xboard_complete_onboarding,
             cmd::xboard_copy_subscription,
             cmd::xboard_copy_telegram_binding,
