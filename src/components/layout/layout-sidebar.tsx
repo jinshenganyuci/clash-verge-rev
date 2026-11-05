@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next'
 
 import iconDark from '@/assets/image/icon_dark.svg?react'
 import iconLight from '@/assets/image/icon_light.svg?react'
-import LogoSvg from '@/assets/image/logo.svg?react'
 import { useVerge } from '@/hooks/use-verge'
 import { useNavMenuOrder } from '@/pages/_layout/hooks'
 import { navItems } from '@/pages/_navigation'
@@ -14,7 +13,6 @@ import { SortableItem } from '../base'
 
 import { LayoutItem } from './layout-item'
 import { LayoutTraffic } from './layout-traffic'
-import { UpdateButton } from './update-button'
 
 type MenuContextPosition = { top: number; left: number }
 
@@ -144,9 +142,10 @@ export const LayoutSidebar = (props: LayoutSidebarProps) => {
             }}
             inheritViewBox
           />
-          <LogoSvg fill={isDark ? 'white' : 'black'} />
+          <Box sx={{ fontSize: 17, fontWeight: 700, lineHeight: 1.15 }}>
+            Clash Verge<br /><Box component="span" sx={{ fontSize: 12, color: 'primary.main' }}>Xboard</Box>
+          </Box>
         </div>
-        <UpdateButton className="the-newbtn" />
       </div>
 
       {/* Edit navigation menu badge */}

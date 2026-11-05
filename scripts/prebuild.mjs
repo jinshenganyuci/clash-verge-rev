@@ -590,13 +590,42 @@ async function resolveServiceBundle() {
     .split(/\r?\n/)
     .find((line) => line.trimStart().startsWith('clash_verge_service_ipc ='))
   const sourcePath = serviceDependency?.match(/\bpath\s*=\s*"([^"]+)"/)?.[1]
-  if (sourcePath) {
-    const manifest = path.resolve(cwd, 'src-tauri', sourcePath, 'Cargo.toml')
+  const xboardChannel = cargoManifest
+    .match(/clash_verge_service_ipc\s*=\s*\{[\s\S]*?\}/)?.[0]
+    .includes('"xboard-channel"')
+  const xboardSource = process.env.XBOARD_SERVICE_SOURCE
+  if (xboardChannel && !xboardSource) {
+    throw new Error(
+      'XBOARD_SERVICE_SOURCE must point to the pinned service checkout',
+    )
+  }
+  if (xboardChannel) {
+    const expectedRevision = serviceDependency?.match(/\brev\s*=\s*"([^"]+)"/)?.[1]
+    const sourceRevision = execFileSync(
+      'git',
+      ['-C', xboardSource, 'rev-parse', 'HEAD'],
+      { encoding: 'utf8' },
+    ).trim()
+    if (!expectedRevision || sourceRevision !== expectedRevision) {
+      throw new Error('Xboard service checkout does not match the Cargo revision')
+    }
+    const changes = execFileSync(
+      'git',
+      ['-C', xboardSource, 'status', '--porcelain'],
+      { encoding: 'utf8' },
+    ).trim()
+    if (changes) throw new Error('Xboard service checkout must be clean')
+  }
+  if (sourcePath || xboardChannel) {
+    const manifest = xboardChannel
+      ? path.resolve(xboardSource, 'Cargo.toml')
+      : path.resolve(cwd, 'src-tauri', sourcePath, 'Cargo.toml')
     const targetDirectory = path.join(cwd, 'target', 'bundled-service')
     execFileSync(
       'cargo',
       [
         'build',
+        '--locked',
         '--manifest-path',
         manifest,
         '--target-dir',
@@ -605,7 +634,7 @@ async function resolveServiceBundle() {
         SIDECAR_HOST,
         '--release',
         '--features',
-        'standalone,client',
+        xboardChannel ? 'standalone,client,xboard-channel' : 'standalone,client',
         '--bins',
       ],
       { stdio: 'inherit' },
@@ -688,6 +717,20 @@ async function resolveCoreHashes() {
       .digest('hex')
     lines.push(`!define ${define} "${digest}"`)
   }
+  const cleanupScript = await fsp.readFile(
+    path.join(cwd, 'scripts', 'stop-xboard-processes.ps1'),
+    'utf8',
+  )
+  lines.push(
+    '!macro WriteXboardCleanupScript',
+    '  InitPluginsDir',
+    '  FileOpen $0 "$PLUGINSDIR\\xboard-stop.ps1" w',
+  )
+  for (const line of cleanupScript.trimEnd().split(/\r?\n/)) {
+    const escaped = line.replaceAll('$', '$$$$').replaceAll('"', '$\\"')
+    lines.push(`  FileWrite $0 "${escaped}$\\r$\\n"`)
+  }
+  lines.push('  FileClose $0', '!macroend')
   await fsp.writeFile(CORE_HASHES_NSH, `${lines.join('\n')}\n`)
   log_success(`Generated ${CORE_HASHES_NSH}`)
 }

@@ -126,6 +126,7 @@ const ProfileItemBase = (props: ProfileItemProps) => {
   )
 
   const { uid, name = 'Profile', extra, updated = 0, option } = itemData
+  const isAccountProfile = uid === 'xboard-account'
 
   const fetchNextUpdateTimeCallback = useCallback(
     async (forceRefresh = false) => {
@@ -512,7 +513,7 @@ const ProfileItemBase = (props: ProfileItemProps) => {
       handler: () => {
         setAnchorEl(null)
         if (batchMode) {
-          if (onSelectionChange) {
+          if (onSelectionChange && !isAccountProfile) {
             onSelectionChange()
           }
         } else {
@@ -573,7 +574,7 @@ const ProfileItemBase = (props: ProfileItemProps) => {
       handler: () => {
         setAnchorEl(null)
         if (batchMode) {
-          if (onSelectionChange) {
+          if (onSelectionChange && !isAccountProfile) {
             onSelectionChange()
           }
         } else {
@@ -682,13 +683,13 @@ const ProfileItemBase = (props: ProfileItemProps) => {
         )}
         <Box sx={{ position: 'relative' }}>
           <Box sx={{ display: 'flex', justifyContent: 'start' }}>
-            {batchMode && (
+            {batchMode && !isAccountProfile && (
               <IconButton
                 size="small"
                 sx={{ padding: '2px', marginRight: '4px', marginLeft: '-8px' }}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (onSelectionChange) {
+                  if (onSelectionChange && !isAccountProfile) {
                     onSelectionChange()
                   }
                 }}
@@ -734,7 +735,7 @@ const ProfileItemBase = (props: ProfileItemProps) => {
             </Typography>
           </Box>
 
-          {hasUrl && (
+          {(hasUrl || isAccountProfile) && (
             <IconButton
               title={t('shared.actions.refresh')}
               sx={{
@@ -855,7 +856,9 @@ const ProfileItemBase = (props: ProfileItemProps) => {
           e.preventDefault()
         }}
       >
-        {(hasUrl ? urlModeMenu : fileModeMenu).map((item) => (
+        {(isAccountProfile
+          ? urlModeMenu.filter((item) => item.label === menuLabels.select || item.label === menuLabels.update)
+          : hasUrl ? urlModeMenu : fileModeMenu).map((item) => (
           <MenuItem
             key={item.label}
             onClick={item.handler}

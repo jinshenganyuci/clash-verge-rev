@@ -139,6 +139,10 @@ pub async fn create_profile(item: ProfileCreate, file_data: Option<std::string::
 #[tauri::command]
 #[specta::specta]
 pub async fn update_profile(index: std::string::String, option: Option<PrfOption>) -> CmdResult {
+    if index == crate::xboard::MANAGED_UID {
+        crate::xboard::refresh(true).await.map_err(|error| coded_error(error.code, error))?;
+        return Ok(());
+    }
     let index: String = index.into();
     match feat::update_profile(&index, option.as_ref(), true).await {
         Ok(_) => Ok(()),
@@ -152,6 +156,7 @@ pub async fn update_profile(index: std::string::String, option: Option<PrfOption
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_profile(index: std::string::String) -> CmdResult {
+    crate::xboard::protect_managed(&index)?;
     let index: String = index.into();
     let profile_write_guard = PROFILE_WRITE_LOCK.lock().await;
 
@@ -432,6 +437,7 @@ pub async fn patch_profiles_config_by_profile_index(profile_index: String) -> Cm
 #[tauri::command]
 #[specta::specta]
 pub async fn patch_profile(index: std::string::String, profile: ProfilePatch) -> CmdResult {
+    crate::xboard::protect_managed(&index)?;
     let profile: PrfItem = profile.into();
     let index: String = index.into();
     let profiles = Config::profiles().await;
@@ -475,6 +481,7 @@ pub async fn patch_profile(index: std::string::String, profile: ProfilePatch) ->
 #[tauri::command]
 #[specta::specta]
 pub async fn view_profile(index: std::string::String) -> CmdResult {
+    crate::xboard::protect_managed(&index)?;
     let profiles = Config::profiles().await;
     let profiles_ref = profiles.latest_arc();
     let file = profiles_ref
@@ -500,6 +507,7 @@ pub async fn view_profile(index: std::string::String) -> CmdResult {
 #[tauri::command]
 #[specta::specta]
 pub async fn read_profile_file(index: std::string::String) -> CmdResult<std::string::String> {
+    crate::xboard::protect_managed(&index)?;
     let item = {
         let profiles = Config::profiles().await;
         let profiles_ref = profiles.latest_arc();

@@ -32,6 +32,7 @@ import { EnhancedCard } from '@/components/home/enhanced-card'
 import { EnhancedTrafficStats } from '@/components/home/enhanced-traffic-stats'
 import { HomeProfileCard } from '@/components/home/home-profile-card'
 import { ProxyTunCard } from '@/components/home/proxy-tun-card'
+import { HomeAccountCard } from '@/components/xboard/account-overview'
 import { useProfiles } from '@/hooks/use-profiles'
 import { useVerge } from '@/hooks/use-verge'
 import { entry_lightweight_mode } from '@/services/cmds'
@@ -354,6 +355,7 @@ const HomePage = () => {
       }
     >
       <Grid container spacing={1.5} columns={{ xs: 6, sm: 6, md: 12 }}>
+        <Grid size={{ xs: 6, md: 12 }}><HomeAccountCard /></Grid>
         {criticalCards}
 
         {nonCriticalCards}

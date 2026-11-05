@@ -75,14 +75,6 @@ jobs:
             if ($scripts.Count -gt 0) { pnpm exec eslint --fix @scripts }
           }
 
-      - name: Frontend lint and tests
-        run: |
-          pnpm lint
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm arch:check
-
       - name: Prepare Windows x64 cores and isolated service
         run: pnpm prebuild x86_64-pc-windows-msvc
 
@@ -94,6 +86,14 @@ jobs:
           cargo fmt --all
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm gen:contract
+
+      - name: Frontend lint and tests
+        run: |
+          pnpm lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm arch:check
 
       - name: Xboard backend tests
         run: cargo test -p clash-verge --lib xboard --locked

@@ -1,3 +1,4 @@
+import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 import ForkRightOutlinedIcon from '@mui/icons-material/ForkRightOutlined'
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined'
@@ -18,6 +19,7 @@ import SettingsSvg from '@/assets/image/itemicon/settings.svg?react'
 import UnlockSvg from '@/assets/image/itemicon/unlock.svg?react'
 
 import { navigationItems } from './_navigation-meta'
+import AccountPage from './account'
 import ConnectionsPage from './connections'
 import HomePage from './home'
 import LogsPage from './logs'
@@ -39,6 +41,11 @@ export const navItems: NavigationItem[] = [
     ...navigationItems.home,
     icon: [<HomeOutlinedIcon key="mui" />, <HomeSvg key="svg" />],
     Component: HomePage,
+  },
+  {
+    ...navigationItems.account,
+    icon: [<AccountCircleOutlinedIcon key="mui" />, <AccountCircleOutlinedIcon key="svg" />],
+    Component: AccountPage,
   },
   {
     ...navigationItems.proxies,

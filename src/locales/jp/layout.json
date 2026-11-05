@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "ホーム",
+        "account": "Account",
         "proxies": "プロキシ",
         "profiles": "プロファイル",
         "connections": "接続",

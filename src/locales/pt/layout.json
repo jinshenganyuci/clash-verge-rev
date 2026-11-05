@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "Início",
+        "account": "Account",
         "proxies": "Proxies",
         "profiles": "Perfis",
         "connections": "Conexões",

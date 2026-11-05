@@ -21,6 +21,7 @@ pub async fn save_profile_file(
     index: std::string::String,
     file_data: Option<std::string::String>,
 ) -> CmdResult<ValidationOutcome> {
+    crate::xboard::protect_managed(&index)?;
     let index: String = index.into();
     let file_data = file_data.map(String::from);
     let file_data = match file_data {

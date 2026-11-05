@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "首 頁",
+        "account": "帳戶",
         "proxies": "代 理",
         "profiles": "訂 閱",
         "connections": "連 線",

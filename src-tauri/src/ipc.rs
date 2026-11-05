@@ -4,6 +4,15 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::new()
         .types(&platform_types())
         .commands(tauri_specta::collect_commands![
+            cmd::xboard_snapshot,
+            cmd::xboard_login,
+            cmd::xboard_register,
+            cmd::xboard_logout,
+            cmd::xboard_refresh,
+            cmd::xboard_request,
+            cmd::xboard_complete_onboarding,
+            cmd::xboard_copy_subscription,
+            cmd::xboard_copy_telegram_binding,
             tauri_plugin_clash_verge_sysinfo::commands::get_system_info,
             tauri_plugin_clash_verge_sysinfo::commands::get_app_uptime,
             tauri_plugin_clash_verge_sysinfo::commands::export_diagnostic_info::<tauri::Wry>,

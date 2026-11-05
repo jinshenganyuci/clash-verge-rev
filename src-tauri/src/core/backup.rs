@@ -287,6 +287,9 @@ pub async fn create_backup() -> Result<(String, PathBuf), Error> {
                 let file_name = file_name_os
                     .to_str()
                     .ok_or_else(|| anyhow::Error::msg("Invalid file name encoding"))?;
+                if file_name.starts_with(&format!("{}-", crate::xboard::MANAGED_UID)) {
+                    continue;
+                }
                 let backup_path = format!("profiles/{}", file_name);
                 zip.start_file(backup_path, options)?;
                 let file_content = fs::read(&path).await?;
@@ -314,7 +317,46 @@ pub async fn create_backup() -> Result<(String, PathBuf), Error> {
     }
 
     zip.start_file(dirs::PROFILE_YAML, options)?;
-    zip.write_all(fs::read(dirs::profiles_path()?).await?.as_slice())?;
+    let profiles_text = fs::read_to_string(dirs::profiles_path()?).await?;
+    zip.write_all(profiles_without_xboard_account(&profiles_text)?.as_bytes())?;
     zip.finish()?;
     Ok((zip_file_name, zip_path))
+}
+
+fn profiles_without_xboard_account(text: &str) -> Result<std::string::String, Error> {
+    let mut profiles: serde_yaml_ng::Value = serde_yaml_ng::from_str(text)?;
+    if let Some(items) = profiles.get_mut("items").and_then(serde_yaml_ng::Value::as_sequence_mut) {
+        items.retain(|item| item.get("uid").and_then(serde_yaml_ng::Value::as_str) != Some(crate::xboard::MANAGED_UID));
+    }
+    if profiles.get("current").and_then(serde_yaml_ng::Value::as_str) == Some(crate::xboard::MANAGED_UID)
+        && let Some(mapping) = profiles.as_mapping_mut()
+    {
+        mapping.remove(serde_yaml_ng::Value::String("current".into()));
+    }
+    Ok(serde_yaml_ng::to_string(&profiles)?)
+}
+
+#[cfg(test)]
+mod xboard_backup_tests {
+    use super::profiles_without_xboard_account;
+
+    #[test]
+    fn xboard_backup_keeps_manual_profiles_without_managed_entries() -> anyhow::Result<()> {
+        let output = profiles_without_xboard_account(
+            "current: xboard-account\nitems:\n  - uid: xboard-account\n    file: xboard-account-42.yaml\n  - uid: manual\n    name: Personal\n",
+        )?;
+        let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&output)?;
+        assert!(parsed.get("current").is_none());
+        assert_eq!(parsed["items"].as_sequence().map(Vec::len), Some(1));
+        assert_eq!(parsed["items"][0]["uid"].as_str(), Some("manual"));
+        Ok(())
+    }
+
+    #[test]
+    fn xboard_backup_preserves_manual_current() -> anyhow::Result<()> {
+        let output = profiles_without_xboard_account("current: manual\nitems: [{uid: manual}]\n")?;
+        let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&output)?;
+        assert_eq!(parsed["current"].as_str(), Some("manual"));
+        Ok(())
+    }
 }

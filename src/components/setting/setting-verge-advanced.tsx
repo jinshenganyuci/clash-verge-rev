@@ -4,7 +4,6 @@ import { useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DialogRef, TooltipIcon } from '@/components/base'
-import { updateLastCheckTime } from '@/hooks/use-update'
 import {
   exitApp,
   exportDiagnosticInfo,
@@ -15,7 +14,8 @@ import {
 } from '@/services/cmds'
 import { mutate } from '@/services/mutate'
 import { showNotice } from '@/services/notice-service'
-import { checkUpdateSafe as checkUpdate } from '@/services/update'
+import { DOWNLOADS_URL } from '@/services/distribution'
+import { openExternalUrl } from '@/utils/open-external-url'
 import { version } from '@root/package.json'
 
 import { BackupViewer } from './mods/backup-viewer'
@@ -26,7 +26,6 @@ import { LiteModeViewer } from './mods/lite-mode-viewer'
 import { MiscViewer } from './mods/misc-viewer'
 import { SettingItem, SettingList } from './mods/setting-comp'
 import { ThemeViewer } from './mods/theme-viewer'
-import { UpdateViewer } from './mods/update-viewer'
 
 interface Props {
   onError?: (err: Error) => void
@@ -40,25 +39,11 @@ const SettingVergeAdvanced = ({ onError: _ }: Props) => {
   const miscRef = useRef<DialogRef>(null)
   const themeRef = useRef<DialogRef>(null)
   const layoutRef = useRef<DialogRef>(null)
-  const updateRef = useRef<DialogRef>(null)
   const backupRef = useRef<DialogRef>(null)
   const liteModeRef = useRef<DialogRef>(null)
 
-  const onCheckUpdate = async () => {
-    try {
-      const info = await checkUpdate()
-      updateLastCheckTime()
-      if (!info?.available) {
-        showNotice.success(
-          'settings.components.verge.advanced.notifications.latestVersion',
-        )
-      } else {
-        updateRef.current?.open()
-      }
-    } catch (err) {
-      console.warn('update check failed:', err)
-      showNotice.warning(err)
-    }
+  const onCheckUpdate = () => {
+    void openExternalUrl(DOWNLOADS_URL).catch(showNotice.error)
   }
 
   const onExportDiagnosticInfo = useCallback(async () => {
@@ -85,7 +70,6 @@ const SettingVergeAdvanced = ({ onError: _ }: Props) => {
       <HotkeyViewer ref={hotkeyRef} />
       <MiscViewer ref={miscRef} />
       <LayoutViewer ref={layoutRef} />
-      <UpdateViewer ref={updateRef} />
       <BackupViewer ref={backupRef} />
       <LiteModeViewer ref={liteModeRef} />
 
@@ -128,7 +112,7 @@ const SettingVergeAdvanced = ({ onError: _ }: Props) => {
 
       <SettingItem
         onClick={onCheckUpdate}
-        label={t('settings.components.verge.advanced.fields.checkUpdates')}
+        label={t('settings.components.verge.advanced.fields.projectDownloads')}
       />
 
       <SettingItem

@@ -10,6 +10,7 @@ import { LayoutSidebar } from '@/components/layout/layout-sidebar'
 import { NoticeManager } from '@/components/layout/notice-manager'
 import { ServiceMigrationDialog } from '@/components/layout/service-migration-dialog'
 import { SysproxyPrivilegeDialog } from '@/components/layout/sysproxy-privilege-dialog'
+import { AccountGate } from '@/components/xboard/account-gate'
 import {
   WindowControls,
   WindowResizeHandles,
@@ -160,6 +161,7 @@ const Layout = () => {
         {customTitlebar}
 
         <div className="layout-content">
+          <AccountGate>
           <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
 
           <div className="layout-content__right">
@@ -170,6 +172,7 @@ const Layout = () => {
               </BaseErrorBoundary>
             </div>
           </div>
+          </AccountGate>
         </div>
       </Paper>
     </ThemeProvider>

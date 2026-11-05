@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "Home",
+        "account": "Account",
         "proxies": "الوكلاء",
         "profiles": "الملفات الشخصية",
         "connections": "الاتصالات",

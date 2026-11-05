@@ -1,3 +1,15 @@
+# Clash Verge Xboard
+
+Windows x64 preview based on Clash Verge Rev v2.5.10, with native Xboard account access and an optional first-run sign-in screen.
+
+[Download Windows preview](https://github.com/jinshenganyuci/clash-verge-rev/releases) · [Builds and checks](https://github.com/jinshenganyuci/clash-verge-rev/actions/workflows/xboard-windows.yml)
+
+This edition installs separately from upstream Clash Verge. Account sessions use Windows DPAPI. Application updates are installed manually from this fork; Mihomo core updates remain available. Preview installers are unsigned and use the WebView2 bootstrapper.
+
+The upstream project information and GPL license follow below.
+
+---
+
 <h1 align="center">
   <img src="./src-tauri/icons/icon.png" alt="Clash" width="128" />
   <br>

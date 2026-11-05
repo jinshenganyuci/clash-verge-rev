@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "Главная",
+        "account": "Account",
         "proxies": "Прокси",
         "profiles": "Профили",
         "connections": "Соединения",

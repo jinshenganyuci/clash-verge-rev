@@ -10,6 +10,7 @@ mod feat;
 pub mod ipc;
 mod process;
 pub mod utils;
+mod xboard;
 
 use crate::constants::files;
 use crate::{
@@ -45,14 +46,6 @@ mod app_init {
         let mut builder = builder
             .plugin(tauri_plugin_clash_verge_sysinfo::init())
             .plugin(tauri_plugin_notification::init())
-            .plugin(
-                tauri_plugin_updater::Builder::new()
-                    .default_version_comparator(|current, release| {
-                        release.version > current
-                            || core::updater::is_build_to_stable(&current.to_string(), &release.version.to_string())
-                    })
-                    .build(),
-            )
             .plugin(tauri_plugin_clipboard_manager::init())
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -101,7 +94,7 @@ mod app_init {
         #[cfg(target_os = "macos")]
         let mut auto_start_plugin_builder = tauri_plugin_autostart::Builder::new();
         #[cfg(not(target_os = "macos"))]
-        let auto_start_plugin_builder = tauri_plugin_autostart::Builder::new();
+        let auto_start_plugin_builder = tauri_plugin_autostart::Builder::new().app_name("Clash Verge Xboard");
 
         #[cfg(target_os = "macos")]
         {
@@ -268,6 +261,7 @@ pub fn run() -> std::process::ExitCode {
 
             logging!(info, Type::System, "应用就绪");
             crate::utils::server::set_commands_ready();
+            crate::xboard::start_background();
 
             #[cfg(target_os = "macos")]
             if let Some(window) = _app_handle.get_webview_window("main") {

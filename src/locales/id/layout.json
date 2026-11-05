@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "Home",
+        "account": "Account",
         "proxies": "Proksi",
         "profiles": "Profil",
         "connections": "Koneksi",

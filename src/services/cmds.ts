@@ -17,6 +17,16 @@ import type {
   ProfileCreate,
 } from './bindings'
 
+export const xboardSnapshot = () => commands.xboardSnapshot()
+export const xboardLogin = (email: string, password: string) => commands.xboardLogin(email, password)
+export const xboardRegister = (input: Parameters<typeof commands.xboardRegister>[0]) => commands.xboardRegister(input)
+export const xboardLogout = () => commands.xboardLogout()
+export const xboardRefresh = (force: boolean) => commands.xboardRefresh(force)
+export const xboardRequest = (operation: Parameters<typeof commands.xboardRequest>[0], params: Record<string, string | number>) => commands.xboardRequest(operation, params)
+export const xboardCompleteOnboarding = () => commands.xboardCompleteOnboarding()
+export const xboardCopySubscription = () => commands.xboardCopySubscription()
+export const xboardCopyTelegramBinding = () => commands.xboardCopyTelegramBinding()
+
 export type {
   RunningMode,
   RunStateView as RunState,

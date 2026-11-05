@@ -57,18 +57,16 @@ pub async fn restart_app() -> CmdResult<()> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn install_update(
+pub fn install_update(
     app_handle: AppHandle,
     version: std::string::String,
     on_event: Channel<DownloadEvent>,
 ) -> CmdResult<bool> {
-    let version: String = version.into();
-    SilentUpdater::global()
-        .install_update(&app_handle, &version, |event| {
-            let _ = on_event.send(event);
-        })
-        .await
-        .stringify_err()
+    let _ = (app_handle, version, on_event);
+    Err(super::coded_error(
+        "APP_UPDATE_DISABLED",
+        "Download Clash Verge Xboard updates from the project releases page",
+    ))
 }
 
 #[tauri::command]

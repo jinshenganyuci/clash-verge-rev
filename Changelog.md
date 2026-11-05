@@ -1,3 +1,9 @@
+## Xboard Windows preview
+
+- Add optional first-run sign-in and registration with automatic subscription synchronization.
+- Add an Account page with membership, nodes, traffic, documents, tickets, orders, invitations, and account settings.
+- Add a separate Windows installation and service for Clash Verge Xboard.
+
 <!-- Release-notes skeleton. Entries accumulate in ./Changelog.md as PRs land;
      before publishing a release, distill them:
      - user-visible changes only — no dev tooling, CI fixes, or refactors whose

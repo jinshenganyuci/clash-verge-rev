@@ -3,6 +3,7 @@
     "navigation": {
       "tabs": {
         "home": "Ana Sayfa",
+        "account": "Account",
         "proxies": "Vekil'ler",
         "profiles": "Profiller",
         "connections": "Bağlantılar",
