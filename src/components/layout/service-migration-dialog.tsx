@@ -19,7 +19,7 @@ export const ServiceMigrationDialog = ({
   onOpenChange,
 }: {
   onOpenChange?: (open: boolean) => void
-}) => {
+} = {}) => {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [stateRefreshFailed, setStateRefreshFailed] = useState(false)

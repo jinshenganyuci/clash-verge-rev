@@ -87,7 +87,7 @@ export const SysproxyPrivilegeDialog = ({
   onOpenChange,
 }: {
   onOpenChange?: (open: boolean) => void
-}) => {
+} = {}) => {
   const { readRunState } = useAppReads()
   const { t } = useTranslation()
   const { failure, dismiss } = useDialogFailure()

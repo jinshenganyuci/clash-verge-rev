@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import {
@@ -16,7 +16,7 @@ const store = vi.hoisted(() => ({
   runState: null as RunState | null,
 }))
 
-vi.mock('react', () => ({ useState: vi.fn() }))
+vi.mock('react', () => ({ useState: vi.fn(), useEffect: vi.fn() }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
@@ -59,6 +59,22 @@ it.each([
     expect(dialog.props.disableCancel).toBe(true)
   },
 )
+
+it('reports unfinished recovery even when the service is ready', () => {
+  store.runState = {
+    service: 'ready',
+    mode: 'Service',
+    serviceNeedsAttention: false,
+    opInFlight: false,
+  } as RunState
+  const onOpenChange = vi.fn()
+  const dialog = ServiceMigrationDialog({ onOpenChange })
+  expect(dialog.props.open).toBe(true)
+  const cleanup = vi.mocked(useEffect).mock.calls[0][0]()
+  expect(onOpenChange).toHaveBeenLastCalledWith(true)
+  if (typeof cleanup === 'function') cleanup()
+  expect(onOpenChange).toHaveBeenLastCalledWith(false)
+})
 
 it('reports the permission refusal and finishes after installation falls back to Sidecar', async () => {
   store.runState = {
