@@ -13,6 +13,7 @@ import { SortableItem } from '../base'
 
 import { LayoutItem } from './layout-item'
 import { LayoutTraffic } from './layout-traffic'
+import { UpdateButton } from './update-button'
 
 type MenuContextPosition = { top: number; left: number }
 
@@ -223,6 +224,7 @@ export const LayoutSidebar = (props: LayoutSidebarProps) => {
 
       {/* Traffic */}
       <div className="the-traffic">
+        <UpdateButton />
         <LayoutTraffic />
       </div>
     </div>

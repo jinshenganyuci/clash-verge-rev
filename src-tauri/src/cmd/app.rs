@@ -57,6 +57,12 @@ pub async fn restart_app() -> CmdResult<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn check_ikun_update() -> CmdResult<Option<crate::ikun_update::IkunUpdateInfo>> {
+    crate::ikun_update::check().await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn install_update(
     app_handle: AppHandle,
     version: std::string::String,

@@ -1,3 +1,7 @@
+## IKUN 2.5.13 preview
+
+- Check for new IKUN releases automatically and let users choose when to download an update.
+
 ## IKUN 2.5.12 preview
 
 - Default first-connection setup to system proxy while keeping TUN available as a manual choice.

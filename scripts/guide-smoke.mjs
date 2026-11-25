@@ -128,8 +128,10 @@ function inspectPage() {
     .map((element) => element.textContent.trim())
   return {
     fixture,
+    update: window.__updateFixture?.state(),
     text: dialog?.textContent ?? '',
     dialog: Boolean(dialog),
+    dialogCount: document.querySelectorAll('[role="dialog"]').length,
     buttons: visibleButtons,
     backgroundNode: Boolean(
       document.querySelector('[data-testid="background-node"]'),
@@ -220,6 +222,131 @@ async function ready() {
   assert.equal(state.backgroundProxy, false)
 }
 
+async function openUpdateScenario(scenario, theme = 'light') {
+  await cdp.call('Page.navigate', {
+    url: `${server.resolvedUrls.local[0]}update.html?scenario=${scenario}&theme=${theme}`,
+  })
+  await waitFor(`${scenario}: configuration loaded`, async () => {
+    const state = await inspect()
+    return (
+      state.update?.scenario === scenario &&
+      state.update.theme === theme &&
+      state.update.calls.includes('config')
+    )
+  })
+}
+
+async function updateDialog() {
+  await waitFor('update dialog and release notes', async () => {
+    const state = await inspect()
+    return (
+      state.text.includes('IKUN 新版本 2.5.14') &&
+      state.text.includes('新版安装包已准备好。')
+    )
+  })
+  assert.equal(lastState.dialogCount, 1)
+  assert.ok(lastState.buttons.includes('下载 Windows x64 安装包'))
+}
+
+async function closeUpdateDialog() {
+  await click('button', '稍后')
+  await waitFor('update dialog dismissed', async () =>
+    !(await inspect()).dialog,
+  )
+}
+
+async function checkUpdates() {
+  for (const theme of ['light', 'dark']) {
+    await openUpdateScenario('update-auto', theme)
+    await waitFor('automatic update result', async () =>
+      (await inspect()).update.calls.includes('check'),
+    )
+    await delay(300)
+    assert.equal((await inspect()).dialog, false)
+    assert.deepEqual(lastState.update.opened, [])
+    await click('[data-testid="allow-update-prompt"]')
+    await updateDialog()
+    await screenshot(`update-${theme}.png`)
+    assert.deepEqual(lastState.update.opened, [])
+    await closeUpdateDialog()
+    await click('[data-testid="remount-update-prompt"]')
+    await waitFor('update prompt remounted', async () =>
+      (await inspect()).update.mount === 1,
+    )
+    await delay(300)
+    assert.equal((await inspect()).dialog, false)
+    assert.deepEqual(lastState.update.opened, [])
+    assert.equal(
+      lastState.update.calls.filter((command) => command === 'check').length,
+      1,
+    )
+    await click('button', '有新版本')
+    await updateDialog()
+    assert.deepEqual(lastState.update.opened, [])
+    await click('button', '下载 Windows x64 安装包')
+    await waitFor('user-requested download link', async () =>
+      (await inspect()).update.opened.length === 1,
+    )
+    assert.deepEqual(lastState.update.opened, [
+      lastState.update.expectedDownload,
+    ])
+    await waitFor('download action closes the dialog', async () =>
+      !(await inspect()).dialog,
+    )
+    await click('button', '有新版本')
+    await updateDialog()
+    await click('button', '查看发布页')
+    await waitFor('user-requested release link', async () =>
+      (await inspect()).update.opened.length === 2,
+    )
+    assert.deepEqual(lastState.update.opened, [
+      lastState.update.expectedDownload,
+      lastState.update.expectedRelease,
+    ])
+    assert.deepEqual(lastState.update.forbidden, [])
+    checks.push({ scenario: `update-auto-${theme}`, state: lastState })
+  }
+
+  await openUpdateScenario('update-disabled')
+  await click('[data-testid="allow-update-prompt"]')
+  await delay(300)
+  assert.equal((await inspect()).dialog, false)
+  assert.equal(lastState.update.calls.includes('check'), false)
+  await click('[data-testid="manual-update-check"]')
+  await updateDialog()
+  assert.equal(lastState.update.manualResult, 'available')
+  assert.deepEqual(lastState.update.opened, [])
+  assert.deepEqual(lastState.update.forbidden, [])
+  checks.push({ scenario: 'update-disabled-manual', state: lastState })
+
+  for (const scenario of [
+    'update-failure',
+    'update-auto-failure',
+    'update-current',
+  ]) {
+    await openUpdateScenario(scenario)
+    await click('[data-testid="allow-update-prompt"]')
+    if (scenario === 'update-auto-failure') {
+      await waitFor('automatic failure stays silent', async () =>
+        (await inspect()).update.calls.includes('check'),
+      )
+      await delay(300)
+      assert.equal((await inspect()).dialog, false)
+      assert.equal(lastState.update.lastCheck, null)
+    }
+    await click('[data-testid="manual-update-check"]')
+    const expected = scenario === 'update-current' ? 'current' : 'error'
+    await waitFor(`${scenario}: manual result`, async () =>
+      (await inspect()).update.manualResult === expected,
+    )
+    assert.equal(lastState.dialog, false)
+    assert.equal(lastState.update.lastCheck !== null, expected === 'current')
+    assert.deepEqual(lastState.update.opened, [])
+    assert.deepEqual(lastState.update.forbidden, [])
+    checks.push({ scenario, state: lastState })
+  }
+}
+
 try {
   const edgeCandidates = [
     process.env['ProgramFiles(x86)'],
@@ -244,6 +371,10 @@ try {
     plugins: [react()],
     resolve: {
       alias: [
+        {
+          find: '@/utils/open-external-url',
+          replacement: join(repo, 'scripts', 'guide-smoke', 'update-opener.ts'),
+        },
         {
           find: '@/services/xboard',
           replacement: join(
@@ -443,13 +574,14 @@ try {
   assert.equal(cancelled.fixture.pending, false)
   assert.equal(cancelled.fixture.homeTab, beforeCancellation.fixture.homeTab)
   checks.push({ scenario: 'cancel', state: cancelled })
+  await checkUpdates()
   assert.deepEqual(browserErrors, [])
   await writeFile(
     join(artifacts, 'report.json'),
     JSON.stringify({ status: 'passed', checks }, null, 2),
   )
   console.log(
-    'Guide UI smoke passed: system default, explicit TUN, system fallback and cancellation; light/dark screenshots saved.',
+    'Guide and update UI smoke passed: connection modes, cancellation, update prompts and user-controlled downloads; light/dark screenshots saved.',
   )
 } catch (error) {
   if (cdp) await screenshot('failure.png').catch(() => {})

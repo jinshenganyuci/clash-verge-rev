@@ -33,6 +33,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             cmd::get_network_interfaces,
             cmd::get_system_hostname,
             cmd::restart_app,
+            cmd::check_ikun_update,
             cmd::install_update,
             cmd::cancel_update_download,
             cmd::restart_core,

@@ -17,6 +17,8 @@ import type {
   ProfileCreate,
 } from './bindings'
 
+export const checkIkunUpdate = () => commands.checkIkunUpdate()
+
 export const xboardSnapshot = () => commands.xboardSnapshot()
 export const xboardRegistrationPolicy = () =>
   commands.xboardRegistrationPolicy()

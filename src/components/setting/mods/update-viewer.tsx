@@ -1,4 +1,4 @@
-import { alpha, Box, Button, LinearProgress } from '@mui/material'
+import { alpha, Box, Button } from '@mui/material'
 import { useLockFn } from 'ahooks'
 import type { Ref } from 'react'
 import {
@@ -6,23 +6,15 @@ import {
   Suspense,
   useImperativeHandle,
   useMemo,
-  useRef,
   useState,
 } from 'react'
-import { useTranslation } from 'react-i18next'
 import type { Options as ReactMarkdownOptions } from 'react-markdown'
 
 import { BaseDialog, DialogRef } from '@/components/base'
 import { useUpdate } from '@/hooks/use-update'
-import type { DownloadEvent } from '@/services/bindings'
-import {
-  cancelUpdateDownload,
-  installUpdate,
-  restartApp,
-} from '@/services/cmds'
-import { mutate } from '@/services/mutate'
+import { useAccountText } from '@/hooks/use-xboard'
 import { showNotice } from '@/services/notice-service'
-import { useSetUpdateState, useUpdateState } from '@/services/states'
+import { markUpdatePrompted } from '@/services/update'
 import { openExternalUrl } from '@/utils/open-external-url'
 
 type MarkdownNode = {
@@ -36,23 +28,28 @@ type MarkdownNode = {
 
 const GITHUB_ALERTS = {
   note: {
-    labelKey: 'settings.modals.update.alerts.note',
+    zh: '说明',
+    en: 'Note',
     color: '#0969da',
   },
   tip: {
-    labelKey: 'settings.modals.update.alerts.tip',
+    zh: '提示',
+    en: 'Tip',
     color: '#1a7f37',
   },
   important: {
-    labelKey: 'settings.modals.update.alerts.important',
+    zh: '重要',
+    en: 'Important',
     color: '#8250df',
   },
   warning: {
-    labelKey: 'settings.modals.update.alerts.warning',
+    zh: '警告',
+    en: 'Warning',
     color: '#9a6700',
   },
   caution: {
-    labelKey: 'settings.modals.update.alerts.caution',
+    zh: '注意',
+    en: 'Caution',
     color: '#cf222e',
   },
 } as const
@@ -64,8 +61,6 @@ const GITHUB_ALERT_PATTERN =
 const GITHUB_ALERT_CLASS_PATTERN =
   /markdown-alert-(note|tip|important|warning|caution)/
 const UPDATE_MARKDOWN_ID_PREFIX = 'update-markdown-'
-
-const shouldShowReleaseNotes = (language: string) => language === 'zh'
 
 const LazyReactMarkdown = lazy(async () => {
   const [
@@ -173,32 +168,46 @@ const remarkGitHubAlerts = (labels: Record<GitHubAlertType, string>) => {
   return visit
 }
 
-export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
-  const { t, i18n } = useTranslation()
-
+export function UpdateViewer({
+  ref,
+  onDismiss,
+}: {
+  ref?: Ref<DialogRef>
+  onDismiss?: () => void
+}) {
+  const text = useAccountText()
   const [open, setOpen] = useState(false)
-  const updateState = useUpdateState()
-  const setUpdateState = useSetUpdateState()
-
-  const { updateInfo } = useUpdate()
-
-  const [downloaded, setDownloaded] = useState(0)
-  const [total, setTotal] = useState(0)
-  const downloadedRef = useRef(0)
-  const totalRef = useRef(0)
+  const [openingDownload, setOpeningDownload] = useState(false)
+  const { updateInfo } = useUpdate(false)
 
   const openUrlWithNotice = (url: string) => {
     void openExternalUrl(url).catch(showNotice.error)
   }
 
-  const progress = useMemo(() => {
-    if (total <= 0) return 0
-    return Math.min((downloaded / total) * 100, 100)
-  }, [downloaded, total])
+  const close = () => {
+    setOpen(false)
+    onDismiss?.()
+  }
+
+  const download = useLockFn(async () => {
+    if (!updateInfo) return
+    setOpeningDownload(true)
+    try {
+      await openExternalUrl(updateInfo.downloadUrl)
+      close()
+    } catch (error) {
+      showNotice.error(error)
+    } finally {
+      setOpeningDownload(false)
+    }
+  })
 
   useImperativeHandle(ref, () => ({
-    open: () => setOpen(true),
-    close: () => setOpen(false),
+    open: () => {
+      if (updateInfo) markUpdatePrompted(updateInfo.version)
+      setOpen(true)
+    },
+    close,
   }))
 
   const githubAlertLabels = useMemo(
@@ -206,99 +215,23 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
       Object.fromEntries(
         Object.entries(GITHUB_ALERTS).map(([type, alert]) => [
           type,
-          t(alert.labelKey),
+          text(alert.zh, alert.en),
         ]),
       ) as Record<GitHubAlertType, string>,
-    [t],
+    [text],
   )
   const remarkGitHubAlertsPlugin = useMemo(
     () => () => remarkGitHubAlerts(githubAlertLabels),
     [githubAlertLabels],
   )
 
-  const activeLanguage = i18n.resolvedLanguage ?? i18n.language
-  const markdownContent = useMemo(() => {
-    if (!updateInfo?.body) {
-      return t('settings.modals.update.messages.available')
-    }
-    if (!shouldShowReleaseNotes(activeLanguage)) {
-      return t('settings.modals.update.messages.available')
-    }
-    return updateInfo?.body
-  }, [activeLanguage, t, updateInfo])
-
-  const breakChangeFlag = useMemo(() => {
-    if (!updateInfo?.body) {
-      return false
-    }
-    return updateInfo?.body.toLowerCase().includes('break change')
-  }, [updateInfo])
-
-  const onUpdate = useLockFn(async () => {
-    if (!updateInfo?.body) return
-    if (breakChangeFlag) {
-      showNotice.error('settings.modals.update.messages.breakChangeError')
-      return
-    }
-    if (updateState) return
-    setUpdateState(true)
-    setDownloaded(0)
-    setTotal(0)
-    downloadedRef.current = 0
-    totalRef.current = 0
-
-    const onDownloadEvent = (event: DownloadEvent) => {
-      if (event.event === 'Started') {
-        const contentLength = event.data.contentLength ?? 0
-        totalRef.current = contentLength
-        setTotal(contentLength)
-        setDownloaded(0)
-        downloadedRef.current = 0
-        return
-      }
-
-      if (event.event === 'Progress') {
-        setDownloaded((prev) => {
-          const next = prev + event.data.chunkLength
-          downloadedRef.current = next
-          return next
-        })
-      }
-
-      if (event.event === 'Finished' && totalRef.current === 0) {
-        totalRef.current = downloadedRef.current
-        setTotal(downloadedRef.current)
-      }
-    }
-
-    try {
-      const result = await mutate(
-        () => installUpdate(updateInfo.version, onDownloadEvent),
-        {
-          id: 'install-app-update',
-          errorNotice: false,
-        },
-      )
-      if (result.ok && result.value) {
-        await mutate(() => restartApp(), {
-          id: 'restart-app',
-          errorNotice: false,
-        })
-      }
-    } catch (err: any) {
-      showNotice.error(err)
-    } finally {
-      setUpdateState(false)
-      setDownloaded(0)
-      setTotal(0)
-      downloadedRef.current = 0
-      totalRef.current = 0
-    }
-  })
+  const markdownContent =
+    updateInfo?.body ||
+    text('IKUN 有新版本可供下载。', 'A new version of IKUN is available.')
 
   return (
     <BaseDialog
-      open={open}
+      open={open && Boolean(updateInfo)}
       title={
         <Box
           sx={{
@@ -318,21 +251,17 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
               whiteSpace: 'nowrap',
             }}
           >
-            {t('settings.modals.update.title', {
-              version: updateInfo?.version ?? '',
-            })}
+            {text('IKUN 新版本', 'New IKUN version')} {updateInfo?.version}
           </Box>
           <Button
             variant="contained"
             size="small"
             sx={{ whiteSpace: 'nowrap' }}
             onClick={() => {
-              openUrlWithNotice(
-                `https://github.com/clash-verge-rev/clash-verge-rev/releases/tag/v${updateInfo?.version}`,
-              )
+              if (updateInfo) openUrlWithNotice(updateInfo.releaseUrl)
             }}
           >
-            {t('settings.modals.update.actions.goToRelease')}
+            {text('查看发布页', 'View release')}
           </Button>
         </Box>
       }
@@ -344,19 +273,12 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
         flexDirection: 'column',
         pb: 1,
       }}
-      okBtn={t('settings.modals.update.actions.update')}
-      cancelBtn={t('shared.actions.cancel')}
-      onClose={() => setOpen(false)}
-      onCancel={() => {
-        if (updateState) {
-          void mutate(() => cancelUpdateDownload(), {
-            id: 'cancel-update-download',
-            errorNotice: false,
-          }).catch(showNotice.error)
-        }
-        setOpen(false)
-      }}
-      onOk={onUpdate}
+      okBtn={text('下载 Windows x64 安装包', 'Download Windows x64 installer')}
+      cancelBtn={text('稍后', 'Later')}
+      loading={openingDownload}
+      onClose={close}
+      onCancel={close}
+      onOk={download}
     >
       <Box
         sx={{
@@ -460,11 +382,6 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
             borderTop: '1px solid',
             borderColor: 'divider',
           },
-          '& img': {
-            maxWidth: '100%',
-            height: 'auto',
-            borderRadius: 1,
-          },
           '& blockquote:not(.markdown-alert)': {
             m: '12px 0 18px',
             pl: 2,
@@ -475,10 +392,17 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
         }}
       >
         {open && (
-          <Suspense fallback={<LinearProgress />}>
+          <Suspense
+            fallback={
+              <Box sx={{ color: 'text.secondary' }}>
+                {text('正在加载版本说明…', 'Loading release notes…')}
+              </Box>
+            }
+          >
             <LazyReactMarkdown
               remarkPlugins={[remarkGitHubAlertsPlugin]}
               components={{
+                img: ({ alt }) => <span>{alt ?? ''}</span>,
                 a: ({ href, children, ...props }) => {
                   const isFragment = href?.startsWith('#') ?? false
                   const renderedHref = isFragment
@@ -560,13 +484,6 @@ export function UpdateViewer({ ref }: { ref?: Ref<DialogRef> }) {
           </Suspense>
         )}
       </Box>
-      {updateState && (
-        <LinearProgress
-          variant={total > 0 ? 'determinate' : 'indeterminate'}
-          value={progress}
-          sx={{ mt: 1 }}
-        />
-      )}
     </BaseDialog>
   )
 }

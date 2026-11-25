@@ -1,100 +1,71 @@
-import {
-  check,
-  type CheckOptions,
-  type Update,
-} from '@tauri-apps/plugin-updater'
-import { compareVersions as compareSemver } from 'compare-versions'
+import { checkIkunUpdate } from './cmds'
+import { setCacheData } from './query-client'
 
-import { version as appVersion } from '@root/package.json'
+export type IkunUpdateInfo = NonNullable<
+  Awaited<ReturnType<typeof checkIkunUpdate>>
+>
 
-import { APP_UPDATES_ENABLED } from './distribution'
+export const IKUN_UPDATE_KEY = ['checkIkunUpdate'] as const
+export const LAST_CHECK_KEY = 'ikun-last-check-update'
+export const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000
 
-const SEMVER_FULL_REGEX =
-  /^\d+(?:\.\d+){1,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
-const SEMVER_SEARCH_REGEX =
-  /v?\d+(?:\.\d+){1,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/i
+let pendingCheck: Promise<IkunUpdateInfo | null> | null = null
+let manualCheckRequested = false
+let lastAttempt: number | null = null
+let latestUpdate: IkunUpdateInfo | null = null
+const promptedVersions = new Set<string>()
 
-const normalizeVersion = (input: string | null | undefined): string | null => {
-  if (typeof input !== 'string') return null
-  const trimmed = input.trim()
-  if (!trimmed) return null
-  return trimmed.replace(/^v/i, '')
+export function markUpdatePrompted(version: string): boolean {
+  if (promptedVersions.has(version)) return false
+  promptedVersions.add(version)
+  return true
 }
 
-const ensureSemver = (input: string | null | undefined): string | null => {
-  const normalized = normalizeVersion(input)
-  if (!normalized) return null
-  return SEMVER_FULL_REGEX.test(normalized) ? normalized : null
-}
-
-const extractSemver = (input: string | null | undefined): string | null => {
-  if (typeof input !== 'string') return null
-  const match = input.match(SEMVER_SEARCH_REGEX)
-  if (!match) return null
-  return normalizeVersion(match[0])
-}
-
-const compareVersions = (a: string | null, b: string | null): number | null => {
-  if (!a || !b) return null
+export function readLastCheckTime(): number | null {
   try {
-    return compareSemver(a, b)
+    const stored = localStorage.getItem(LAST_CHECK_KEY)
+    if (!stored) return null
+    const timestamp = Number(stored)
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null
   } catch {
     return null
   }
 }
 
-const resolveRemoteVersion = (update: Update): string | null => {
-  const primary = ensureSemver(update.version)
-  if (primary) return primary
-
-  const fallbackPrimary = extractSemver(update.version)
-  if (fallbackPrimary) return fallbackPrimary
-
-  const raw = update.rawJson ?? {}
-  const rawVersion = ensureSemver(
-    typeof raw.version === 'string' ? raw.version : null,
-  )
-  if (rawVersion) return rawVersion
-
-  const tagVersion = extractSemver(
-    typeof raw.tag_name === 'string' ? raw.tag_name : null,
-  )
-  if (tagVersion) return tagVersion
-
-  const nameVersion = extractSemver(
-    typeof raw.name === 'string' ? raw.name : null,
-  )
-  if (nameVersion) return nameVersion
-
-  return null
-}
-
-const localVersionNormalized = normalizeVersion(appVersion)
-
-export const checkUpdateSafe = async (
-  options?: CheckOptions,
-): Promise<Update | null> => {
-  if (!APP_UPDATES_ENABLED) return null
-  const result = await check(options ?? {})
-  if (!result) return null
-
-  const remoteVersion = resolveRemoteVersion(result)
-  const comparison = compareVersions(remoteVersion, localVersionNormalized)
-
-  const isBuildToStable =
-    /^\d+\.\d+\.\d+\+[0-9A-Za-z.-]+$/.test(localVersionNormalized ?? '') &&
-    remoteVersion === localVersionNormalized?.split('+')[0]
-
-  if (comparison !== null && comparison <= 0 && !isBuildToStable) {
-    try {
-      await result.close()
-    } catch (err) {
-      console.warn('[updater] failed to close stale update resource', err)
-    }
-    return null
+export function updateLastCheckTime(timestamp = Date.now()): number {
+  try {
+    localStorage.setItem(LAST_CHECK_KEY, String(timestamp))
+  } catch {
+    // A display preference must not discard a successful release check.
   }
-
-  return result
+  void setCacheData([LAST_CHECK_KEY], timestamp)
+  return timestamp
 }
 
-export type { CheckOptions }
+export function checkUpdateSafe(
+  source: 'automatic' | 'manual' = 'manual',
+): Promise<IkunUpdateInfo | null> {
+  if (source === 'manual') manualCheckRequested = true
+  if (pendingCheck) return pendingCheck
+  const now = Date.now()
+  if (
+    source === 'automatic' &&
+    lastAttempt !== null &&
+    now - lastAttempt < UPDATE_CHECK_INTERVAL
+  ) {
+    return Promise.resolve(latestUpdate)
+  }
+  lastAttempt = now
+  pendingCheck = checkIkunUpdate()
+    .then((update) => {
+      latestUpdate = update
+      if (update && manualCheckRequested) markUpdatePrompted(update.version)
+      updateLastCheckTime()
+      return update
+    })
+    .finally(() => {
+      pendingCheck = null
+      manualCheckRequested = false
+    })
+  return pendingCheck
+}

@@ -151,7 +151,10 @@ jobs:
       - name: Xboard backend tests
         id: backend_tests
         continue-on-error: true
-        run: cargo test -p clash-verge --lib xboard --locked --features clippy
+        run: |
+          cargo test -p clash-verge --lib xboard --locked --features clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p clash-verge --lib ikun_update --locked --features clippy
 
       - name: Require all validation checks before packaging
         if: steps.frontend_generate.outcome != 'success' || steps.frontend_format.outcome != 'success' || steps.frontend_checks.outcome != 'success' || steps.contracts.outcome != 'success' || steps.generated_clean.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.clippy.outcome != 'success' || steps.backend_tests.outcome != 'success' || steps.guide_ui.outcome != 'success'

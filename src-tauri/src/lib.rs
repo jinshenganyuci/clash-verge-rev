@@ -7,6 +7,7 @@ mod constants;
 mod core;
 mod enhance;
 mod feat;
+mod ikun_update;
 pub mod ipc;
 mod process;
 pub mod utils;

@@ -1,7 +1,7 @@
 import { Paper, ThemeProvider } from '@mui/material'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useNavigate } from 'react-router'
 
@@ -10,6 +10,7 @@ import { LayoutSidebar } from '@/components/layout/layout-sidebar'
 import { NoticeManager } from '@/components/layout/notice-manager'
 import { ServiceMigrationDialog } from '@/components/layout/service-migration-dialog'
 import { SysproxyPrivilegeDialog } from '@/components/layout/sysproxy-privilege-dialog'
+import { UpdatePrompt } from '@/components/layout/update-button'
 import {
   WindowControls,
   WindowResizeHandles,
@@ -20,7 +21,9 @@ import { useVerge } from '@/hooks/use-verge'
 import { useWindowDecorations } from '@/hooks/use-window'
 import { useEventBus } from '@/services/bus'
 import { handleNoticeMessage } from '@/services/notice-handlers'
+import { getServiceRequest, subscribeServiceRequest } from '@/services/service-request'
 import { useThemeMode } from '@/services/states'
+import { useRunState } from '@/store/app-store-context'
 import getSystem from '@/utils/get-system'
 
 import {
@@ -42,6 +45,8 @@ const Layout = () => {
   const { t } = useTranslation()
   const { theme } = useCustomTheme()
   const { verge } = useVerge()
+  const runState = useRunState()
+  const serviceRequest = useSyncExternalStore(subscribeServiceRequest, getServiceRequest)
   const { language } = verge ?? {}
   const navCollapsed = verge?.collapse_navbar ?? false
   const { switchLanguage } = useI18n()
@@ -162,6 +167,7 @@ const Layout = () => {
           <AccountGate>
             <ServiceMigrationDialog />
             <SysproxyPrivilegeDialog />
+            <UpdatePrompt allowPrompt={Boolean(runState && !runState.serviceNeedsAttention && !runState.opInFlight && !serviceRequest)} />
             <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
 
             <div className="layout-content__right">

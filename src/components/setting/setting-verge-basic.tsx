@@ -1,11 +1,14 @@
 import { ContentCopyRounded } from '@mui/icons-material'
 import { Button, Input, MenuItem, Select } from '@mui/material'
 import { open } from '@tauri-apps/plugin-dialog'
-import { useCallback, useRef } from 'react'
+import { useLockFn } from 'ahooks'
+import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { DialogRef, TooltipIcon } from '@/components/base'
+import { DialogRef, Switch, TooltipIcon } from '@/components/base'
+import { useUpdate } from '@/hooks/use-update'
 import { useVerge } from '@/hooks/use-verge'
+import { useAccountText } from '@/hooks/use-xboard'
 import { navigationItems } from '@/pages/_navigation-meta'
 import { copyClashEnv } from '@/services/cmds'
 import { supportedLanguages } from '@/services/i18n'
@@ -53,6 +56,9 @@ const languageOptions = supportedLanguages.map((code) => {
 
 const SettingVergeBasic = ({ onError }: Props) => {
   const { t } = useTranslation()
+  const text = useAccountText()
+  const { checkUpdate } = useUpdate(false)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
 
   const { verge, patchVerge, mutateVerge } = useVerge()
   const {
@@ -70,6 +76,19 @@ const SettingVergeBasic = ({ onError }: Props) => {
   const layoutRef = useRef<DialogRef>(null)
   const updateRef = useRef<DialogRef>(null)
   const backupRef = useRef<DialogRef>(null)
+
+  const onCheckUpdate = useLockFn(async () => {
+    setCheckingUpdate(true)
+    try {
+      const result = await checkUpdate()
+      if (result.data) updateRef.current?.open()
+      else showNotice.success(text('当前已是最新版', 'You are up to date'))
+    } catch {
+      showNotice.error(text('检测更新失败，请检查网络后重试。', 'Could not check for updates. Check your connection and try again.'))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  })
 
   const onChangeData = (patch: any) => {
     mutateVerge({ ...verge, ...patch }, false)
@@ -99,6 +118,25 @@ const SettingVergeBasic = ({ onError }: Props) => {
       <LayoutViewer ref={layoutRef} />
       <UpdateViewer ref={updateRef} />
       <BackupViewer ref={backupRef} />
+
+      <SettingItem label={text('自动检查 IKUN 更新', 'Automatically check for IKUN updates')}>
+        <GuardState
+          value={verge?.auto_check_ikun_update ?? true}
+          valueProps="checked"
+          onCatch={onError}
+          onFormat={(_event: unknown, checked: boolean) => checked}
+          onChange={(value) => onChangeData({ auto_check_ikun_update: value })}
+          onGuard={(value) => patchVerge({ auto_check_ikun_update: value })}
+        >
+          <Switch />
+        </GuardState>
+      </SettingItem>
+
+      <SettingItem label={text('软件更新', 'Application updates')}>
+        <Button loading={checkingUpdate} onClick={onCheckUpdate}>
+          {text('检查更新', 'Check for updates')}
+        </Button>
+      </SettingItem>
 
       <SettingItem label={t('settings.components.verge.basic.fields.language')}>
         <GuardState
