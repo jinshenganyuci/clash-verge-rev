@@ -52,7 +52,7 @@ export function AccountConnectionGuide() {
   const completion = useAccountTask()
   const preparedRef = useRef(false)
   const completedAttemptRef = useRef<number | null>(null)
-  const [mode, setMode] = useState<ConnectionMode>('tun')
+  const [mode, setMode] = useState<ConnectionMode>('system')
   const state = guide.data
   const phase = state?.phase ?? 'idle'
   const { run } = work
@@ -206,23 +206,23 @@ export function AccountConnectionGuide() {
               value={mode}
               aria-label={text('连接方式', 'Connection mode')}
               onChange={(_, value) =>
-                setMode(value === 'system' ? 'system' : 'tun')
+                setMode(value === 'tun' ? 'tun' : 'system')
               }
             >
               <Paper variant="outlined" sx={{ p: 1.5, mb: 1, borderRadius: 2 }}>
                 <FormControlLabel
-                  value="tun"
+                  value="system"
                   disabled={work.busy || connection.busy || cancellation.busy}
                   control={<Radio />}
                   label={
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>
-                        {text('虚拟网卡模式（推荐）', 'TUN mode (recommended)')}
+                        {text('系统代理（推荐）', 'System proxy (recommended)')}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {text(
-                          '接管更多应用的网络连接，可能需要管理员授权。',
-                          'Connects more applications. Administrator permission may be required.',
+                          '适用于浏览器等遵循系统代理设置的应用。',
+                          'Connects browsers and other applications that use system proxy settings.',
                         )}
                       </Typography>
                     </Box>
@@ -231,18 +231,18 @@ export function AccountConnectionGuide() {
               </Paper>
               <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                 <FormControlLabel
-                  value="system"
+                  value="tun"
                   disabled={work.busy || connection.busy || cancellation.busy}
                   control={<Radio />}
                   label={
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>
-                        {text('系统代理', 'System proxy')}
+                        {text('虚拟网卡模式', 'TUN mode')}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {text(
-                          '适用于浏览器等遵循系统代理设置的应用。',
-                          'Connects browsers and other applications that use system proxy settings.',
+                          '接管更多应用的网络连接，可能需要管理员授权。',
+                          'Connects more applications. Administrator permission may be required.',
                         )}
                       </Typography>
                     </Box>

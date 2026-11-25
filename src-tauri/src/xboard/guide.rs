@@ -45,8 +45,8 @@ pub enum XboardGuidePhase {
 #[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum XboardGuideMode {
-    #[default]
     Tun,
+    #[default]
     System,
 }
 

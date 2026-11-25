@@ -742,7 +742,7 @@ try {
     $appBinary = Join-Path $installRoot 'IKUN.exe'
     if (-not (Test-Path -LiteralPath $appBinary)) { throw 'The installer did not use the IKUN directory and executable.' }
     $installedIdentity = Get-ItemProperty -LiteralPath 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Clash Verge Xboard'
-    if ($installedIdentity.DisplayName -ne 'IKUN' -or $installedIdentity.DisplayVersion -ne '2.5.11' -or $installedIdentity.MainBinaryName -ne 'IKUN.exe' -or $installedIdentity.InstallLocation.Trim('"') -ne $installRoot) {
+    if ($installedIdentity.DisplayName -ne 'IKUN' -or $installedIdentity.DisplayVersion -ne '2.5.12' -or $installedIdentity.MainBinaryName -ne 'IKUN.exe' -or $installedIdentity.InstallLocation.Trim('"') -ne $installRoot) {
         throw 'The installed display name, version, executable or path was not updated to IKUN.'
     }
     if ((Get-Service -Name $serviceName).DisplayName -ne 'IKUN Service') { throw 'The service display name was not updated to IKUN.' }

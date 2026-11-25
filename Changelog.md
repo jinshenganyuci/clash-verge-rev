@@ -1,3 +1,7 @@
+## IKUN 2.5.12 preview
+
+- Default first-connection setup to system proxy while keeping TUN available as a manual choice.
+
 ## IKUN 2.5.11 preview
 
 - Add guided first connection with subscription synchronization, available-route selection, and a choice of connection mode.

@@ -48,7 +48,7 @@ let account = {
 let guide: ConnectionGuide = {
   attempt_id: 0,
   phase: 'idle',
-  mode: 'tun',
+  mode: 'system',
   group_name: null,
   node_name: null,
   latency_ms: null,
@@ -94,6 +94,7 @@ export async function connectAccount(attemptId: number, mode: ConnectionMode) {
   window.setTimeout(() => {
     const firstFailure =
       scenario === 'failure' &&
+      mode === 'tun' &&
       calls.filter((call) => call.command === 'connect').length === 1
     guide = firstFailure
       ? {

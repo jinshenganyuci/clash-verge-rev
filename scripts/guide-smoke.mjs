@@ -212,8 +212,10 @@ async function ready() {
     (await inspect()).buttons.includes('开始使用'),
   )
   const state = await inspect()
-  assert.equal(state.tunSelected, true)
-  assert.equal(state.systemSelected, false)
+  assert.equal(state.tunSelected, false)
+  assert.equal(state.systemSelected, true)
+  assert.ok(state.text.includes('系统代理（推荐）'))
+  assert.equal(state.text.includes('虚拟网卡模式（推荐）'), false)
   assert.equal(state.backgroundNode, false)
   assert.equal(state.backgroundProxy, false)
 }
@@ -350,10 +352,10 @@ try {
   )
   assert.equal(
     successful.fixture.calls.find((call) => call.command === 'connect').mode,
-    'tun',
+    'system',
   )
   assert.equal(successful.fixture.pending, false)
-  assert.equal(successful.fixture.homeTab, 'tun')
+  assert.equal(successful.fixture.homeTab, 'system')
   assert.ok(
     successful.fixture.reads >= 3,
     'The real guide polling remains active during setup',
@@ -363,12 +365,15 @@ try {
   await openScenario('failure', 'dark')
   await ready()
   await screenshot('ready-dark.png')
+  await click('input[type="radio"][value="tun"]')
+  assert.equal((await inspect()).tunSelected, true)
+  assert.equal(lastState.systemSelected, false)
   await click('button', '开始使用')
   await waitFor('TUN failure', async () =>
     (await inspect()).buttons.includes('重试连接'),
   )
   assert.equal(lastState.main, false)
-  assert.equal(lastState.fixture.homeTab, 'tun')
+  assert.equal(lastState.fixture.homeTab, 'system')
   assert.equal(
     lastState.fixture.calls.some((call) => call.command === 'complete'),
     false,
@@ -394,7 +399,32 @@ try {
   checks.push({ scenario: 'failure', state: retried })
   assert.equal(retried.fixture.homeTab, 'system')
 
+  await openScenario('tun-success', 'light')
+  await ready()
+  await click('input[type="radio"][value="tun"]')
+  assert.equal((await inspect()).tunSelected, true)
+  await click('button', '开始使用')
+  await waitFor('explicit TUN connection completed', async () =>
+    (await inspect()).main,
+  )
+  const tunSuccessful = await inspect()
+  assert.deepEqual(
+    tunSuccessful.fixture.calls
+      .filter((call) => call.command === 'connect')
+      .map((call) => call.mode),
+    ['tun'],
+  )
+  assert.equal(
+    tunSuccessful.fixture.calls.filter((call) => call.command === 'complete')
+      .length,
+    1,
+  )
+  assert.equal(tunSuccessful.fixture.pending, false)
+  assert.equal(tunSuccessful.fixture.homeTab, 'tun')
+  checks.push({ scenario: 'tun-success', state: tunSuccessful })
+
   const beforeCancellation = await openScenario('cancel', 'light')
+  assert.equal(beforeCancellation.fixture.homeTab, 'tun')
   await click('button', '暂不连接')
   await waitFor('cancelled guide closes', async () => (await inspect()).main)
   await delay(1200)
@@ -418,7 +448,7 @@ try {
     JSON.stringify({ status: 'passed', checks }, null, 2),
   )
   console.log(
-    'Guide UI smoke passed: success, system fallback and cancellation; light/dark screenshots saved.',
+    'Guide UI smoke passed: system default, explicit TUN, system fallback and cancellation; light/dark screenshots saved.',
   )
 } catch (error) {
   if (cdp) await screenshot('failure.png').catch(() => {})
