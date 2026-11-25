@@ -404,8 +404,9 @@ try {
   await click('input[type="radio"][value="tun"]')
   assert.equal((await inspect()).tunSelected, true)
   await click('button', '开始使用')
-  await waitFor('explicit TUN connection completed', async () =>
-    (await inspect()).main,
+  await waitFor(
+    'explicit TUN connection completed',
+    async () => (await inspect()).main,
   )
   const tunSuccessful = await inspect()
   assert.deepEqual(
