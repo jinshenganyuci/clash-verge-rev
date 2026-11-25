@@ -29,11 +29,11 @@ await i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 })
 
-function UpdateFixture() {
+export function UpdateFixture() {
   const [allowPrompt, setAllowPrompt] = useState(false)
   const [mount, setMount] = useState(0)
   const [manualResult, setManualResult] = useState('idle')
-  const viewer = useRef<DialogRef>(null)
+  const viewerRef = useRef<DialogRef>(null)
   const { checkUpdate, loading } = useUpdate(false)
 
   useEffect(() => {
@@ -54,7 +54,7 @@ function UpdateFixture() {
     try {
       const { data } = await checkUpdate()
       setManualResult(data ? 'available' : 'current')
-      if (data) viewer.current?.open()
+      if (data) viewerRef.current?.open()
     } catch {
       setManualResult('error')
     }
@@ -91,7 +91,7 @@ function UpdateFixture() {
         {manualResult}
       </Typography>
       <UpdatePrompt key={mount} allowPrompt={allowPrompt} />
-      <UpdateViewer ref={viewer} />
+      <UpdateViewer ref={viewerRef} />
     </Box>
   )
 }

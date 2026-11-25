@@ -1,7 +1,14 @@
 import { Paper, ThemeProvider } from '@mui/material'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useNavigate } from 'react-router'
 
@@ -21,7 +28,10 @@ import { useVerge } from '@/hooks/use-verge'
 import { useWindowDecorations } from '@/hooks/use-window'
 import { useEventBus } from '@/services/bus'
 import { handleNoticeMessage } from '@/services/notice-handlers'
-import { getServiceRequest, subscribeServiceRequest } from '@/services/service-request'
+import {
+  getServiceRequest,
+  subscribeServiceRequest,
+} from '@/services/service-request'
 import { useThemeMode } from '@/services/states'
 import { useRunState } from '@/store/app-store-context'
 import getSystem from '@/utils/get-system'
@@ -46,7 +56,12 @@ const Layout = () => {
   const { theme } = useCustomTheme()
   const { verge } = useVerge()
   const runState = useRunState()
-  const serviceRequest = useSyncExternalStore(subscribeServiceRequest, getServiceRequest)
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false)
+  const [privilegeDialogOpen, setPrivilegeDialogOpen] = useState(false)
+  const serviceRequest = useSyncExternalStore(
+    subscribeServiceRequest,
+    getServiceRequest,
+  )
   const { language } = verge ?? {}
   const navCollapsed = verge?.collapse_navbar ?? false
   const { switchLanguage } = useI18n()
@@ -165,9 +180,18 @@ const Layout = () => {
 
         <div className="layout-content">
           <AccountGate>
-            <ServiceMigrationDialog />
-            <SysproxyPrivilegeDialog />
-            <UpdatePrompt allowPrompt={Boolean(runState && !runState.serviceNeedsAttention && !runState.opInFlight && !serviceRequest)} />
+            <ServiceMigrationDialog onOpenChange={setServiceDialogOpen} />
+            <SysproxyPrivilegeDialog onOpenChange={setPrivilegeDialogOpen} />
+            <UpdatePrompt
+              allowPrompt={Boolean(
+                runState &&
+                  !runState.serviceNeedsAttention &&
+                  !runState.opInFlight &&
+                  !serviceRequest &&
+                  !serviceDialogOpen &&
+                  !privilegeDialogOpen,
+              )}
+            />
             <LayoutSidebar isDark={isDark} isCollapsed={navCollapsed} />
 
             <div className="layout-content__right">

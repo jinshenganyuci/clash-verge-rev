@@ -29,6 +29,7 @@ export const UpdateButton = (props: Props) => {
         color="error"
         variant="contained"
         size="small"
+        sx={{ mx: 2, mb: 1, alignSelf: 'center' }}
         className={className}
         onClick={() => viewerRef.current?.open()}
       >

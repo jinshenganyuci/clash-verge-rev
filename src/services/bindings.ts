@@ -57,6 +57,16 @@ export const commands = {
     __TAURI_INVOKE<string[]>('get_network_interfaces'),
   getSystemHostname: () => __TAURI_INVOKE<string>('get_system_hostname'),
   restartApp: () => __TAURI_INVOKE<null>('restart_app'),
+  checkIkunUpdate: () =>
+    __TAURI_INVOKE<{
+      version: string
+      tag: string
+      releaseUrl: string
+      downloadUrl: string
+      body: string
+      publishedAt: string | null
+      size: number
+    } | null>('check_ikun_update'),
   installUpdate: (version: string, onEvent: Channel<DownloadEvent>) =>
     __TAURI_INVOKE<boolean>('install_update', { version, onEvent }),
   cancelUpdateDownload: () => __TAURI_INVOKE<void>('cancel_update_download'),
@@ -435,6 +445,7 @@ export type IVerge_Deserialize = {
   home_cards?: JsonValue | null
   auto_close_connection?: boolean | null
   auto_check_update?: boolean | null
+  auto_check_ikun_update?: boolean | null
   default_latency_test?: string | null
   default_latency_timeout?: number | null
   enable_auto_delay_detection?: boolean | null
@@ -525,6 +536,7 @@ export type IVerge_Serialize = {
   home_cards: JsonValue | null
   auto_close_connection: boolean | null
   auto_check_update: boolean | null
+  auto_check_ikun_update: boolean | null
   default_latency_test: string | null
   default_latency_timeout: number | null
   enable_auto_delay_detection: boolean | null
@@ -568,6 +580,16 @@ export type IconInfo = {
   name: string
   previous_t: string
   current_t: string
+}
+
+export type IkunUpdateInfo = {
+  version: string
+  tag: string
+  releaseUrl: string
+  downloadUrl: string
+  body: string
+  publishedAt: string | null
+  size: number
 }
 
 export type InterfaceAddress =

@@ -84,7 +84,12 @@ const SettingVergeBasic = ({ onError }: Props) => {
       if (result.data) updateRef.current?.open()
       else showNotice.success(text('当前已是最新版', 'You are up to date'))
     } catch {
-      showNotice.error(text('检测更新失败，请检查网络后重试。', 'Could not check for updates. Check your connection and try again.'))
+      showNotice.error(
+        text(
+          '检测更新失败，请检查网络后重试。',
+          'Could not check for updates. Check your connection and try again.',
+        ),
+      )
     } finally {
       setCheckingUpdate(false)
     }
@@ -119,7 +124,12 @@ const SettingVergeBasic = ({ onError }: Props) => {
       <UpdateViewer ref={updateRef} />
       <BackupViewer ref={backupRef} />
 
-      <SettingItem label={text('自动检查 IKUN 更新', 'Automatically check for IKUN updates')}>
+      <SettingItem
+        label={text(
+          '自动检查 IKUN 更新',
+          'Automatically check for IKUN updates',
+        )}
+      >
         <GuardState
           value={verge?.auto_check_ikun_update ?? true}
           valueProps="checked"

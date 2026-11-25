@@ -223,8 +223,8 @@ export const LayoutSidebar = (props: LayoutSidebarProps) => {
       </Menu>
 
       {/* Traffic */}
+      {!isCollapsed && <UpdateButton />}
       <div className="the-traffic">
-        <UpdateButton />
         <LayoutTraffic />
       </div>
     </div>

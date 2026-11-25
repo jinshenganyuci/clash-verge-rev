@@ -250,8 +250,9 @@ async function updateDialog() {
 
 async function closeUpdateDialog() {
   await click('button', '稍后')
-  await waitFor('update dialog dismissed', async () =>
-    !(await inspect()).dialog,
+  await waitFor(
+    'update dialog dismissed',
+    async () => !(await inspect()).dialog,
   )
 }
 
@@ -270,8 +271,9 @@ async function checkUpdates() {
     assert.deepEqual(lastState.update.opened, [])
     await closeUpdateDialog()
     await click('[data-testid="remount-update-prompt"]')
-    await waitFor('update prompt remounted', async () =>
-      (await inspect()).update.mount === 1,
+    await waitFor(
+      'update prompt remounted',
+      async () => (await inspect()).update.mount === 1,
     )
     await delay(300)
     assert.equal((await inspect()).dialog, false)
@@ -284,20 +286,23 @@ async function checkUpdates() {
     await updateDialog()
     assert.deepEqual(lastState.update.opened, [])
     await click('button', '下载 Windows x64 安装包')
-    await waitFor('user-requested download link', async () =>
-      (await inspect()).update.opened.length === 1,
+    await waitFor(
+      'user-requested download link',
+      async () => (await inspect()).update.opened.length === 1,
     )
     assert.deepEqual(lastState.update.opened, [
       lastState.update.expectedDownload,
     ])
-    await waitFor('download action closes the dialog', async () =>
-      !(await inspect()).dialog,
+    await waitFor(
+      'download action closes the dialog',
+      async () => !(await inspect()).dialog,
     )
     await click('button', '有新版本')
     await updateDialog()
     await click('button', '查看发布页')
-    await waitFor('user-requested release link', async () =>
-      (await inspect()).update.opened.length === 2,
+    await waitFor(
+      'user-requested release link',
+      async () => (await inspect()).update.opened.length === 2,
     )
     assert.deepEqual(lastState.update.opened, [
       lastState.update.expectedDownload,
@@ -336,8 +341,9 @@ async function checkUpdates() {
     }
     await click('[data-testid="manual-update-check"]')
     const expected = scenario === 'update-current' ? 'current' : 'error'
-    await waitFor(`${scenario}: manual result`, async () =>
-      (await inspect()).update.manualResult === expected,
+    await waitFor(
+      `${scenario}: manual result`,
+      async () => (await inspect()).update.manualResult === expected,
     )
     assert.equal(lastState.dialog, false)
     assert.equal(lastState.update.lastCheck !== null, expected === 'current')

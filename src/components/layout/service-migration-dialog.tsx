@@ -1,5 +1,5 @@
 import { Alert } from '@mui/material'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BaseDialog } from '@/components/base'
@@ -15,7 +15,11 @@ import { mutate } from '@/services/mutate'
 import { showNotice } from '@/services/notice-service'
 import { useAppReads, useRunState } from '@/store/app-store-context'
 
-export const ServiceMigrationDialog = () => {
+export const ServiceMigrationDialog = ({
+  onOpenChange,
+}: {
+  onOpenChange?: (open: boolean) => void
+}) => {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [stateRefreshFailed, setStateRefreshFailed] = useState(false)
@@ -36,6 +40,10 @@ export const ServiceMigrationDialog = () => {
           ? 'install'
           : 'reinstall'
   const open = loading || workflowIncomplete || needsDecision
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => onOpenChange?.(false)
+  }, [open, onOpenChange])
   const checking =
     loading ||
     !runState ||

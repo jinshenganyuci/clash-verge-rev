@@ -1,5 +1,5 @@
 import { Alert, LinearProgress, Typography } from '@mui/material'
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BaseDialog } from '@/components/base'
@@ -83,7 +83,11 @@ const STEP_MESSAGE = {
   applying: 'layout.components.sysproxyPrivilege.applying',
 } as const
 
-export const SysproxyPrivilegeDialog = () => {
+export const SysproxyPrivilegeDialog = ({
+  onOpenChange,
+}: {
+  onOpenChange?: (open: boolean) => void
+}) => {
   const { readRunState } = useAppReads()
   const { t } = useTranslation()
   const { failure, dismiss } = useDialogFailure()
@@ -93,6 +97,11 @@ export const SysproxyPrivilegeDialog = () => {
 
   // Prefer the request the user just made over a pending failure.
   const request = asked ?? (failure ? asServiceRequest(failure) : null)
+  const open = Boolean(request)
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => onOpenChange?.(false)
+  }, [open, onOpenChange])
 
   const reason = request?.reason ?? 'sysproxyRefused'
   const remedy = remedyFor(reason)
@@ -176,7 +185,7 @@ export const SysproxyPrivilegeDialog = () => {
 
   return (
     <BaseDialog
-      open={Boolean(request)}
+      open={open}
       title={t(TITLE[reason])}
       okBtn={t(
         remedy === 'reinstallAndRestart'

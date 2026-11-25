@@ -149,9 +149,7 @@ fn candidate(release: GithubRelease, current: &Version) -> CmdResult<Option<Cand
 fn select_page(releases: Vec<GithubRelease>, current: &Version, latest: &mut Option<Candidate>) -> CmdResult<()> {
     for release in releases {
         if let Some(candidate) = candidate(release, current)?
-            && latest
-                .as_ref()
-                .is_none_or(|previous| candidate.is_newer_than(previous))
+            && latest.as_ref().is_none_or(|previous| candidate.is_newer_than(previous))
         {
             *latest = Some(candidate);
         }
@@ -168,7 +166,10 @@ fn decode_page(bytes: &[u8]) -> CmdResult<Vec<GithubRelease>> {
 }
 
 async fn read_page(mut response: reqwest::Response) -> CmdResult<Vec<GithubRelease>> {
-    if response.content_length().is_some_and(|length| length > MAX_RESPONSE as u64) {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE as u64)
+    {
         return Err(invalid_response());
     }
     let mut body = Vec::new();
@@ -280,8 +281,7 @@ mod tests {
 
     #[test]
     fn previews_are_included_and_versions_use_semver_precedence() -> anyhow::Result<()> {
-        let preview = select(vec![release("2.5.13")], "2.5.12")?
-            .ok_or_else(|| anyhow::anyhow!("missing preview"))?;
+        let preview = select(vec![release("2.5.13")], "2.5.12")?.ok_or_else(|| anyhow::anyhow!("missing preview"))?;
         assert_eq!(preview.info.version, "2.5.13");
         let latest = select(
             vec![
@@ -336,10 +336,7 @@ mod tests {
                 "html_url",
                 "http://github.com/jinshenganyuci/clash-verge-rev/releases/tag/ikun-preview-2.5.13.1",
             ),
-            (
-                "browser_download_url",
-                "https://example.com/IKUN_2.5.13_x64-setup.exe",
-            ),
+            ("browser_download_url", "https://example.com/IKUN_2.5.13_x64-setup.exe"),
             (
                 "browser_download_url",
                 "https://github.com/jinshenganyuci/clash-verge-rev/releases/download/wrong-tag/IKUN_2.5.13_x64-setup.exe",
