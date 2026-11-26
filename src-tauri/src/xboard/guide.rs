@@ -23,6 +23,9 @@ use tauri_plugin_mihomo::models::{Proxies, ProxyType};
 use tokio::sync::Mutex;
 
 const TEST_URL: &str = "https://www.gstatic.com/generate_204";
+const MAIN_GROUP: &str = "🚀节点选择";
+const AUTO_POLICY: &str = "自动选择";
+const FAILOVER_POLICY: &str = "故障转移";
 const MAX_CANDIDATES: usize = 128;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(45);
 static GUIDE: LazyLock<parking_lot::Mutex<Guide>> = LazyLock::new(|| parking_lot::Mutex::new(Guide::default()));
@@ -411,7 +414,7 @@ async fn prepare_inner(id: u64) -> Result<()> {
             .map_err(|_| unavailable())
     })
     .await?;
-    let mut candidates = candidates(&proxies, configuration.runtime.config.as_ref());
+    let candidates = candidates(&proxies);
     if candidates.is_empty() {
         return Err(unavailable());
     }
@@ -422,22 +425,7 @@ async fn prepare_inner(id: u64) -> Result<()> {
             guide.snapshot.total = candidates.len() as u32;
         }
     }
-    let deadline = tokio::time::Instant::now() + CHECK_TIMEOUT;
-    refresh_automatic_groups(id, &identity, &configuration, &candidates, deadline).await?;
-    let proxies = within(deadline, Duration::from_secs(3), Handle::mihomo().get_proxies())
-        .await?
-        .map_err(|_| unavailable())?;
-    candidates.retain(|candidate| proxy_route(&proxies, &candidate.probe));
-    if candidates.is_empty() {
-        return Err(unavailable());
-    }
-    {
-        let mut guide = GUIDE.lock();
-        if guide.snapshot.attempt_id == id {
-            guide.snapshot.total = candidates.len() as u32;
-        }
-    }
-    let (candidate, latency) = probe_candidates(id, candidates, deadline).await?;
+    let (candidate, latency) = probe_routes(id, &identity, &configuration, candidates).await?;
     let prepared = Prepared {
         identity,
         configuration,
@@ -456,95 +444,84 @@ async fn prepare_inner(id: u64) -> Result<()> {
     Ok(())
 }
 
-fn candidates(proxies: &Proxies, runtime: Option<&serde_yaml_ng::Mapping>) -> Vec<Candidate> {
-    let rules = runtime
-        .and_then(|config| config.get("rules"))
-        .and_then(|rules| rules.as_sequence());
-    let root = rules.and_then(|rules| {
-        rules.iter().rev().filter_map(|rule| rule.as_str()).find_map(|rule| {
-            let mut parts = rule.split(',').map(str::trim);
-            matches!(parts.next(), Some("MATCH" | "FINAL"))
-                .then(|| parts.next())
-                .flatten()
+fn candidates(proxies: &Proxies) -> Vec<Candidate> {
+    let mut seen = HashSet::new();
+    proxies
+        .proxies
+        .get(MAIN_GROUP)
+        .filter(|group| group.proxy_type == ProxyType::Selector)
+        .and_then(|group| group.all.as_ref())
+        .into_iter()
+        .flatten()
+        .filter_map(|name| {
+            let proxy = proxies.proxies.get(name)?;
+            let automatic = match (name.as_str(), &proxy.proxy_type) {
+                (AUTO_POLICY, ProxyType::URLTest) | (FAILOVER_POLICY, ProxyType::Fallback) => true,
+                (
+                    _,
+                    ProxyType::Selector
+                    | ProxyType::URLTest
+                    | ProxyType::Fallback
+                    | ProxyType::LoadBalance
+                    | ProxyType::Relay
+                    | ProxyType::Direct
+                    | ProxyType::Reject
+                    | ProxyType::RejectDrop
+                    | ProxyType::Compatible
+                    | ProxyType::Pass
+                    | ProxyType::PassRule
+                    | ProxyType::Dns,
+                ) => return None,
+                _ if proxy.all.is_none() => false,
+                _ => return None,
+            };
+            seen.insert(name).then(|| Candidate {
+                probe: name.clone(),
+                path: vec![Selection {
+                    group: MAIN_GROUP.into(),
+                    node: name.clone(),
+                }],
+                automatic,
+            })
         })
-    });
-    let rule_targets = rules
-        .into_iter()
-        .flatten()
-        .filter_map(|rule| rule.as_str())
-        .filter_map(|rule| {
-            let mut parts = rule.rsplit(',').map(str::trim);
-            match parts.next() {
-                Some("no-resolve") => parts.next(),
-                target => target,
-            }
-        });
-    let named_groups = runtime
-        .and_then(|config| config.get("proxy-groups"))
-        .and_then(|groups| groups.as_sequence())
-        .into_iter()
-        .flatten()
-        .filter_map(|group| group.get("name").and_then(|name| name.as_str()));
-    for root in root.into_iter().chain(rule_targets).chain(named_groups) {
-        if root == "GLOBAL" {
-            continue;
-        }
-        let mut candidates = Vec::new();
-        visit(proxies, root, Vec::new(), &mut HashSet::new(), &mut candidates);
-        let mut seen = HashSet::new();
-        candidates.retain(|candidate| seen.insert(candidate.probe.clone()));
-        if !candidates.is_empty() {
-            return candidates;
-        }
-    }
-    Vec::new()
+        .take(MAX_CANDIDATES)
+        .collect()
 }
 
-fn visit(
-    proxies: &Proxies,
-    name: &str,
-    path: Vec<Selection>,
-    visited: &mut HashSet<String>,
-    output: &mut Vec<Candidate>,
-) {
-    if path.len() > 8 || output.len() >= MAX_CANDIDATES || !visited.insert(name.to_owned()) {
-        return;
-    }
-    if let Some(proxy) = proxies.proxies.get(name) {
-        match &proxy.proxy_type {
-            ProxyType::Selector => {
-                for member in proxy.all.iter().flatten() {
-                    let mut path = path.clone();
-                    path.push(Selection {
-                        group: name.to_owned(),
-                        node: member.clone(),
-                    });
-                    visit(proxies, member, path, visited, output);
-                }
-            }
-            ProxyType::Direct
-            | ProxyType::Reject
-            | ProxyType::RejectDrop
-            | ProxyType::Compatible
-            | ProxyType::Pass
-            | ProxyType::PassRule
-            | ProxyType::Dns => {}
-            // Automatic groups remain a single branch; selecting their children would pin their policy.
-            _ => {
-                if !output.iter().any(|candidate| candidate.probe == name) {
-                    output.push(Candidate {
-                        probe: name.to_owned(),
-                        path,
-                        automatic: matches!(
-                            &proxy.proxy_type,
-                            ProxyType::URLTest | ProxyType::Fallback | ProxyType::LoadBalance
-                        ),
-                    });
-                }
-            }
+fn candidate_batches(mut candidates: Vec<Candidate>) -> Vec<Vec<Candidate>> {
+    let mut batches = Vec::new();
+    for policy in [AUTO_POLICY, FAILOVER_POLICY] {
+        if let Some(index) = candidates
+            .iter()
+            .position(|candidate| candidate.automatic && candidate.probe == policy)
+        {
+            batches.push(vec![candidates.remove(index)]);
         }
     }
-    visited.remove(name);
+    if !candidates.is_empty() {
+        batches.push(candidates);
+    }
+    batches
+}
+
+async fn probe_routes(
+    id: u64,
+    identity: &Identity,
+    configuration: &Configuration,
+    candidates: Vec<Candidate>,
+) -> Result<(Candidate, u32)> {
+    let deadline = tokio::time::Instant::now() + CHECK_TIMEOUT;
+    for mut batch in candidate_batches(candidates) {
+        refresh_automatic_groups(id, identity, configuration, &batch, deadline).await?;
+        let proxies = within(deadline, Duration::from_secs(3), Handle::mihomo().get_proxies())
+            .await?
+            .map_err(|_| unavailable())?;
+        batch.retain(|candidate| proxy_route(&proxies, &candidate.probe));
+        if let Some(winner) = probe_candidates(id, batch, deadline).await? {
+            return Ok(winner);
+        }
+    }
+    Err(unavailable())
 }
 
 fn proxy_route(proxies: &Proxies, name: &str) -> bool {
@@ -615,9 +592,10 @@ async fn refresh_automatic_groups(
             Duration::from_secs(3),
             Handle::mihomo().get_proxy_by_name(&candidate.probe),
         )
-        .await?
-        .map_err(|_| unavailable())?;
-        if group.fixed.as_deref().is_none_or(str::is_empty) {
+        .await
+        .ok()
+        .and_then(std::result::Result::ok);
+        if let Some(group) = group.filter(|group| group.fixed.as_deref().is_none_or(str::is_empty)) {
             // Mihomo clears fixed selection before its bounded health check. Keep manual writers outside this request.
             let url = group
                 .test_url
@@ -644,7 +622,7 @@ async fn probe_candidates(
     id: u64,
     candidates: Vec<Candidate>,
     deadline: tokio::time::Instant,
-) -> Result<(Candidate, u32)> {
+) -> Result<Option<(Candidate, u32)>> {
     let operation = async {
         let mut probes = stream::iter(candidates)
             .map(|candidate| async move {
@@ -679,7 +657,7 @@ async fn probe_candidates(
             }
             keep_fastest(&mut best, candidate, latency);
         }
-        best.ok_or_else(unavailable)
+        Ok(best)
     };
     cancellable(id, operation).await
 }
@@ -899,11 +877,13 @@ mod tests {
 
     fn network() -> anyhow::Result<Proxies> {
         Ok(serde_json::from_value(json!({"proxies": {
-            "Main":{"name":"Main","type":"Selector","all":["DIRECT","Automatic","Manual"]},
-            "Automatic":{"name":"Automatic","type":"URLTest","all":["Fast","Slow"],"now":"Slow"},
-            "Manual":{"name":"Manual","type":"Selector","all":["Main","Fast","Slow"]},
+            "🚀节点选择":{"name":"🚀节点选择","type":"Selector","all":["自动选择","故障转移","Fast","Slow","Claude分流","DIRECT"]},
+            "自动选择":{"name":"自动选择","type":"URLTest","all":["Fast","Slow"],"now":"Slow"},
+            "故障转移":{"name":"故障转移","type":"Fallback","all":["Slow","Fast"],"now":"Slow"},
+            "Claude分流":{"name":"Claude分流","type":"Selector","all":["OnlyClaude"],"now":"OnlyClaude"},
             "Fast":{"name":"Fast","type":"Shadowsocks"},
             "Slow":{"name":"Slow","type":"Vmess"},
+            "OnlyClaude":{"name":"OnlyClaude","type":"Shadowsocks"},
             "DIRECT":{"name":"DIRECT","type":"Direct"}
         }}))?)
     }
@@ -936,60 +916,53 @@ mod tests {
     }
 
     #[test]
-    fn nested_automatic_groups_remain_automatic_and_selector_cycles_are_bounded() -> anyhow::Result<()> {
+    fn first_login_candidates_only_change_the_main_selector() -> anyhow::Result<()> {
         let proxies = network()?;
-        let runtime = serde_yaml_ng::from_str::<serde_yaml_ng::Mapping>("rules: ['MATCH,Main']")?;
-        let choices = candidates(&proxies, Some(&runtime));
-        assert_eq!(choices.len(), 3);
-        let automatic = choices
+        let choices = candidates(&proxies);
+        let probes = choices
             .iter()
-            .find(|choice| choice.probe == "Automatic")
-            .ok_or_else(|| anyhow::anyhow!("missing automatic branch"))?;
-        assert!(automatic.automatic);
+            .map(|choice| (choice.probe.as_str(), choice.automatic))
+            .collect::<Vec<_>>();
         assert_eq!(
-            automatic.path,
-            vec![Selection {
-                group: "Main".into(),
-                node: "Automatic".into()
-            }]
+            probes,
+            [("自动选择", true), ("故障转移", true), ("Fast", false), ("Slow", false)]
         );
-        let fast = choices
-            .iter()
-            .find(|choice| choice.probe == "Fast")
-            .ok_or_else(|| anyhow::anyhow!("missing manual branch"))?;
-        assert_eq!(
-            fast.path,
-            vec![
-                Selection {
-                    group: "Main".into(),
-                    node: "Manual".into()
-                },
-                Selection {
-                    group: "Manual".into(),
-                    node: "Fast".into()
-                }
-            ]
-        );
-        assert!(choices.iter().all(|choice| choice.probe != "DIRECT"));
+        for choice in choices {
+            assert_eq!(
+                choice.path,
+                [Selection {
+                    group: "🚀节点选择".into(),
+                    node: choice.probe,
+                }]
+            );
+        }
         Ok(())
     }
 
     #[test]
-    fn direct_final_rule_uses_a_referenced_group_without_rewriting_other_groups() -> anyhow::Result<()> {
+    fn missing_or_invalid_main_selector_does_not_fall_back_to_a_service_group() -> anyhow::Result<()> {
+        let mut proxies = network()?;
+        let main = proxies
+            .proxies
+            .get_mut("🚀节点选择")
+            .ok_or_else(|| anyhow::anyhow!("missing main selector"))?;
+        main.proxy_type = ProxyType::URLTest;
+        assert!(candidates(&proxies).is_empty());
+        proxies.proxies.remove("🚀节点选择");
+        assert!(candidates(&proxies).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn automatic_selection_and_failover_each_have_priority_over_individual_nodes() -> anyhow::Result<()> {
         let proxies = network()?;
-        for text in [
-            "rules: ['DOMAIN,example.com,Main','MATCH,DIRECT']",
-            "proxy-groups: [{name: Main}]",
-        ] {
-            let runtime = serde_yaml_ng::from_str::<serde_yaml_ng::Mapping>(text)?;
-            let choices = candidates(&proxies, Some(&runtime));
-            assert_eq!(choices.len(), 3);
-            assert!(
-                choices
-                    .iter()
-                    .all(|choice| choice.path.first().is_some_and(|selection| selection.group == "Main"))
-            );
-        }
+        let mut choices = candidates(&proxies);
+        choices.reverse();
+        let probes = candidate_batches(choices)
+            .into_iter()
+            .map(|batch| batch.into_iter().map(|choice| choice.probe).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        assert_eq!(probes, [vec!["自动选择"], vec!["故障转移"], vec!["Slow", "Fast"]]);
         Ok(())
     }
 
@@ -1056,32 +1029,27 @@ mod tests {
     #[test]
     fn automatic_current_outbounds_must_resolve_to_a_real_proxy() -> anyhow::Result<()> {
         let mut proxies = network()?;
-        assert!(proxy_route(&proxies, "Automatic"));
-        for selected in ["DIRECT", "missing", "Automatic"] {
+        assert!(proxy_route(&proxies, "自动选择"));
+        for selected in ["DIRECT", "missing", "自动选择"] {
             proxies
                 .proxies
-                .get_mut("Automatic")
+                .get_mut("自动选择")
                 .ok_or_else(|| anyhow::anyhow!("missing group"))?
                 .now = Some(selected.into());
-            assert!(!proxy_route(&proxies, "Automatic"));
+            assert!(!proxy_route(&proxies, "自动选择"));
         }
         proxies
             .proxies
-            .get_mut("Automatic")
+            .get_mut("自动选择")
             .ok_or_else(|| anyhow::anyhow!("missing group"))?
-            .now = Some("Manual".into());
+            .now = Some("Claude分流".into());
+        assert!(proxy_route(&proxies, "自动选择"));
         proxies
             .proxies
-            .get_mut("Manual")
-            .ok_or_else(|| anyhow::anyhow!("missing group"))?
-            .now = Some("Fast".into());
-        assert!(proxy_route(&proxies, "Automatic"));
-        proxies
-            .proxies
-            .get_mut("Manual")
+            .get_mut("Claude分流")
             .ok_or_else(|| anyhow::anyhow!("missing group"))?
             .now = Some("DIRECT".into());
-        assert!(!proxy_route(&proxies, "Automatic"));
+        assert!(!proxy_route(&proxies, "自动选择"));
         Ok(())
     }
 
@@ -1090,18 +1058,18 @@ mod tests {
         let mut proxies = network()?;
         let group = proxies
             .proxies
-            .get_mut("Automatic")
+            .get_mut("自动选择")
             .ok_or_else(|| anyhow::anyhow!("missing group"))?;
         group.proxy_type = ProxyType::LoadBalance;
         group.all = Some(vec!["Fast".into(), "DIRECT".into()]);
         group.now = Some("Fast".into());
-        assert!(!proxy_route(&proxies, "Automatic"));
+        assert!(!proxy_route(&proxies, "自动选择"));
         proxies
             .proxies
-            .get_mut("Automatic")
+            .get_mut("自动选择")
             .ok_or_else(|| anyhow::anyhow!("missing group"))?
             .all = Some(vec!["Fast".into(), "Slow".into()]);
-        assert!(proxy_route(&proxies, "Automatic"));
+        assert!(proxy_route(&proxies, "自动选择"));
         Ok(())
     }
 

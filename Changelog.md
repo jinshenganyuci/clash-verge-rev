@@ -1,3 +1,7 @@
+## IKUN 2.5.14 preview
+
+- Fix first-connection setup to select a route only in the main proxy group and prefer its automatic policy.
+
 ## IKUN 2.5.13 preview
 
 - Check for new IKUN releases automatically and let users choose when to download an update.
